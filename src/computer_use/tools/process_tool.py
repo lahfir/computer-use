@@ -82,7 +82,10 @@ class ProcessTool:
         """
         try:
             if self.os_type == "darwin":
-                subprocess.Popen(["open", "-a", app_name])
+                subprocess.run(
+                    ["osascript", "-e", f'tell application "{app_name}" to activate'],
+                    check=True,
+                )
             elif self.os_type == "windows":
                 subprocess.Popen(["start", "", app_name], shell=True)
             else:

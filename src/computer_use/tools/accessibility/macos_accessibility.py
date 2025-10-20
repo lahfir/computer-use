@@ -86,17 +86,23 @@ class MacOSAccessibility:
         elements = []
 
         try:
-            # Get frontmost application
-            frontmost = self.atomacos.NativeUIElement.getFrontmostApp()
-            app_name_actual = (
-                frontmost.AXTitle if hasattr(frontmost, "AXTitle") else "Unknown"
-            )
-
-            print(f"  🔍 Accessibility: Searching {app_name_actual} for '{label}'")
+            if app_name:
+                app = self.atomacos.getAppRefByLocalizedName(app_name)
+                app_name_actual = app_name
+                print(
+                    f"  🔍 Accessibility: Searching {app_name_actual} (by name) for '{label}'"
+                )
+            else:
+                # Fallback to frontmost app
+                app = self.atomacos.NativeUIElement.getFrontmostApp()
+                app_name_actual = app.AXTitle if hasattr(app, "AXTitle") else "Unknown"
+                print(
+                    f"  🔍 Accessibility: Searching {app_name_actual} (frontmost) for '{label}'"
+                )
 
             # Search for matching elements
             if label:
-                elements = self._find_by_text(frontmost, label, role)
+                elements = self._find_by_text(app, label, role)
 
             print(f"  ✅ Found {len(elements)} elements with 100% accurate coordinates")
 
@@ -115,13 +121,30 @@ class MacOSAccessibility:
         text_lower = text.lower()
 
         try:
-            # Get all descendants
+            app_windows = []
+            if hasattr(app_element, "AXWindows") and app_element.AXWindows:
+                app_windows = app_element.AXWindows
+            elif hasattr(app_element, "AXChildren") and app_element.AXChildren:
+                app_windows = [
+                    child
+                    for child in app_element.AXChildren
+                    if hasattr(child, "AXRole")
+                    and str(child.AXRole) in ["AXWindow", "AXSheet", "AXDrawer"]
+                ]
+
+            if not app_windows:
+                print(f"    ⚠️  No windows found for this app")
+                return elements
+
+            print(
+                f"    🪟 Searching ONLY {len(app_windows)} window(s) of this app (not system-wide)"
+            )
+
             def traverse(elem, depth=0):
-                if depth > 20:  # Prevent infinite recursion
+                if depth > 20:
                     return
 
                 try:
-                    # Check if this element matches
                     matches = False
                     matched_text = None
 
@@ -182,8 +205,8 @@ class MacOSAccessibility:
                 except:
                     pass  # Skip problematic elements
 
-            # Start traversal
-            traverse(app_element)
+            for window in app_windows:
+                traverse(window)
 
         except Exception as e:
             print(f"    Traversal error: {e}")

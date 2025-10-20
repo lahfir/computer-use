@@ -20,14 +20,14 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual environments
-venv/
-env/
-ENV/
-.venv
-
-# Environment variables
+# Virtual Environments
 .env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 
 # IDE
 .vscode/
@@ -35,32 +35,24 @@ ENV/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
-Thumbs.db
 
-# CrewAI
-.crewai/
-
-# Logs
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
 *.log
-logs/
 
-# Output
+# Project specific
 output/
-screenshots/
+*.md.bak
+test_*.py
+demo_*.py
+examples/
 
+# UV
+.uv/
 
-.venv/
-venv/
-env/
-ENV/
-.venv/
-venv/
-env/
-ENV/
-.venv/
-venv/
-env/
-ENV/
+.cursor/
+.CLAUDE.md
+.claude/

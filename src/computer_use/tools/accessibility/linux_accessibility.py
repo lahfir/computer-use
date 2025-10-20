@@ -80,21 +80,41 @@ class LinuxAccessibility:
         try:
             print(f"  🔍 Linux AT-SPI: Searching for '{label or role}'")
 
-            # Get active application if no app specified
+            # CRITICAL FIX: Get ONLY active/focused application, not all apps
+            active_app = None
             if not app_name:
-                # Try to get active window
+                # Find the focused/active application
                 for app in self.desktop:
                     try:
-                        if app.name:
-                            elements.extend(self._search_tree(app, label, role, title))
+                        # Check if this app has an active window
+                        for window in app:
+                            try:
+                                state_set = window.getState()
+                                if state_set.contains(self.pyatspi.STATE_ACTIVE):
+                                    active_app = app
+                                    print(
+                                        f"    🪟 Searching ONLY active app: {app.name}"
+                                    )
+                                    break
+                            except:
+                                continue
+                        if active_app:
+                            break
                     except:
                         continue
+
+                if active_app:
+                    elements.extend(self._search_tree(active_app, label, role, title))
+                else:
+                    print(f"    ⚠️  No active application found")
             else:
                 # Search specific app
                 for app in self.desktop:
                     try:
                         if app_name.lower() in app.name.lower():
+                            print(f"    🪟 Searching app: {app.name}")
                             elements.extend(self._search_tree(app, label, role, title))
+                            break
                     except:
                         continue
 
