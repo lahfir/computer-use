@@ -165,4 +165,3 @@ def _get_scaling_factor() -> float:
             pass
 
     return 1.0
-

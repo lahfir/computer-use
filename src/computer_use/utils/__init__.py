@@ -14,4 +14,3 @@ __all__ = [
     "SafetyChecker",
     "CoordinateValidator",
 ]
-

@@ -179,4 +179,3 @@ class InputTool:
 
         pyautogui.scroll(clicks)
         return True
-

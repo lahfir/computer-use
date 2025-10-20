@@ -95,9 +95,9 @@ def print_task_analysis(task: str, analysis):
 
 [cyan]Classification:[/cyan]
   • Type: [bold]{analysis.task_type.value.upper()}[/bold]
-  • Browser: {'[green]Yes[/green]' if analysis.requires_browser else '[dim]No[/dim]'}
-  • GUI: {'[green]Yes[/green]' if analysis.requires_gui else '[dim]No[/dim]'}
-  • System: {'[green]Yes[/green]' if analysis.requires_system else '[dim]No[/dim]'}
+  • Browser: {"[green]Yes[/green]" if analysis.requires_browser else "[dim]No[/dim]"}
+  • GUI: {"[green]Yes[/green]" if analysis.requires_gui else "[dim]No[/dim]"}
+  • System: {"[green]Yes[/green]" if analysis.requires_system else "[dim]No[/dim]"}
 
 [yellow]Reasoning:[/yellow] {analysis.reasoning}
 """

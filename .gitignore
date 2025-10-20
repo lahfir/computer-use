@@ -56,3 +56,5 @@ examples/
 .cursor/
 .CLAUDE.md
 .claude/
+
+.ruff_cache/

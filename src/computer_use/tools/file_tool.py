@@ -216,4 +216,3 @@ class FileTool:
             "is_file": path.is_file(),
             "is_dir": path.is_dir(),
         }
-

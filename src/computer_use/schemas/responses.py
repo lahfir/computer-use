@@ -21,4 +21,3 @@ class AgentResponse(BaseModel):
     next_action: Optional[str] = Field(
         default=None, description="Suggested next action if task is incomplete"
     )
-

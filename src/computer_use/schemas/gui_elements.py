@@ -57,4 +57,3 @@ class SemanticTarget(BaseModel):
         default=None,
         description="Expected accessibility role (button, textfield, etc.)",
     )
-

@@ -125,4 +125,3 @@ For example: 450,300
             return (x, y)
 
         raise ValueError(f"Could not parse coordinates from: {response}")
-

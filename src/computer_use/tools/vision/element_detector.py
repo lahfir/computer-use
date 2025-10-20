@@ -112,4 +112,3 @@ class ElementDetector:
                 return ranges
 
         return []
-

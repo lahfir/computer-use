@@ -154,4 +154,3 @@ class PlatformHelper:
             capture_output=capture_output,
             text=True,
         )
-

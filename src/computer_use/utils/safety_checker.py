@@ -157,4 +157,3 @@ Do you want to proceed? (yes/no): """
             return True
 
         return False
-

@@ -126,4 +126,3 @@ class CoordinateValidator:
             return (False, "Element extends outside screen")
 
         return (True, None)
-

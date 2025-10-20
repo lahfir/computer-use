@@ -221,8 +221,8 @@ TASK: {task}
         if handoff_context:
             prompt += f"""
 HANDOFF CONTEXT:
-- GUI agent failed: {handoff_context.get('failed_action')} → {handoff_context.get('failed_target')}
-- Current app: {handoff_context.get('current_app')}
+- GUI agent failed: {handoff_context.get("failed_action")} → {handoff_context.get("failed_target")}
+- Current app: {handoff_context.get("current_app")}
 - You need to accomplish this via shell commands
 """
 

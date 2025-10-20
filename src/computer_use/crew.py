@@ -11,6 +11,8 @@ from .agents.browser_agent import BrowserAgent
 from .agents.system_agent import SystemAgent
 from .utils.coordinate_validator import CoordinateValidator
 from .tools.platform_registry import PlatformToolRegistry
+from .schemas.actions import ActionResult
+from .schemas.browser_output import BrowserOutput
 from .utils.ui import (
     print_task_analysis,
     print_agent_start,
@@ -21,7 +23,6 @@ from .utils.ui import (
     print_info,
     console,
 )
-from .schemas.browser_output import BrowserOutput
 import yaml
 
 
@@ -200,13 +201,13 @@ class ComputerUseCrew:
             print_agent_start("BROWSER")
             result = await self._execute_browser(task, context)
             results.append(result)
-            context["previous_results"].append(result)
+            context["previous_results"].append(result.model_dump())
 
-            browser_completed_attempt = result.get("data", {}).get(
-                "task_complete", False
+            browser_completed_attempt = (
+                result.data.get("task_complete", False) if result.data else False
             )
 
-            if result.get("success"):
+            if result.success:
                 print_success("Browser task completed successfully")
 
                 if browser_completed_attempt and not (
@@ -216,50 +217,53 @@ class ComputerUseCrew:
                     return self._build_result(task, analysis, results, True)
             elif browser_completed_attempt:
                 print_warning("Browser completed attempt but couldn't fully succeed")
-                output_data = result.get("data", {}).get("output", {})
-                if isinstance(output_data, dict):
-                    try:
-                        browser_output = BrowserOutput(**output_data)
-                        print_info(f"Browser says: {browser_output.text}")
-                        if browser_output.has_files():
-                            print_info(
-                                f"Files available: {browser_output.get_file_count()} file(s)"
-                            )
-                            for file_path in browser_output.files[:3]:
-                                console.print(f"  [dim]• {file_path}[/dim]")
-                    except Exception:
+                if result.data and "output" in result.data:
+                    output_data = result.data["output"]
+                    if isinstance(output_data, dict):
+                        try:
+                            browser_output = BrowserOutput(**output_data)
+                            print_info(f"Browser says: {browser_output.text}")
+                            if browser_output.has_files():
+                                print_info(
+                                    f"Files available: {browser_output.get_file_count()} file(s)"
+                                )
+                                for file_path in browser_output.files[:3]:
+                                    console.print(f"  [dim]• {file_path}[/dim]")
+                        except Exception:
+                            print_info(f"Output: {output_data}")
+                    else:
                         print_info(f"Output: {output_data}")
-                else:
-                    print_info(f"Output: {output_data}")
             else:
-                print_failure(
-                    f"Browser task failed: {result.get('error', 'Unknown error')}"
-                )
+                print_failure(f"Browser task failed: {result.error or 'Unknown error'}")
                 return self._build_result(task, analysis, results, False)
 
         if analysis.requires_gui:
             print_agent_start("GUI")
             result = await self._execute_gui(task, context)
             results.append(result)
-            context["previous_results"].append(result)
+            context["previous_results"].append(result.model_dump())
 
-            if result.get("handoff_requested"):
-                suggested = result.get("suggested_agent")
-                print_handoff("GUI", suggested.upper(), result.get("handoff_reason"))
+            if result.handoff_requested:
+                suggested = result.suggested_agent
+                print_handoff(
+                    "GUI",
+                    suggested.upper() if suggested else "UNKNOWN",
+                    result.handoff_reason,
+                )
 
-                context["handoff_context"] = result.get("handoff_context")
+                context["handoff_context"] = result.handoff_context
 
                 if suggested == "system":
                     print_agent_start("SYSTEM (Handoff)")
                     handoff_result = await self._execute_system(task, context)
                     results.append(handoff_result)
 
-                    if handoff_result.get("success"):
+                    if handoff_result.success:
                         print_success("System agent completed handoff task")
                         context["handoff_succeeded"] = True
                     else:
                         print_failure(
-                            f"System agent also failed: {handoff_result.get('error')}"
+                            f"System agent also failed: {handoff_result.error}"
                         )
                         return self._build_result(task, analysis, results, False)
                 elif suggested == "browser":
@@ -267,27 +271,25 @@ class ComputerUseCrew:
                     handoff_result = await self._execute_browser(task, context)
                     results.append(handoff_result)
 
-                    if handoff_result.get("success"):
+                    if handoff_result.success:
                         print_success("Browser agent completed handoff task")
                         context["handoff_succeeded"] = True
                     else:
                         print_failure(
-                            f"Browser agent also failed: {handoff_result.get('error')}"
+                            f"Browser agent also failed: {handoff_result.error}"
                         )
                         return self._build_result(task, analysis, results, False)
-            elif result.get("success"):
+            elif result.success:
                 print_success("GUI task completed")
 
-                if result.get("data", {}).get("task_complete"):
+                if result.data and result.data.get("task_complete"):
                     print_success(
                         "Task fully completed by GUI agent - skipping System agent"
                     )
                     return self._build_result(task, analysis, results, True)
             else:
                 if not context.get("handoff_succeeded"):
-                    print_failure(
-                        f"GUI task failed: {result.get('error', 'Unknown error')}"
-                    )
+                    print_failure(f"GUI task failed: {result.error or 'Unknown error'}")
                     return self._build_result(task, analysis, results, False)
 
         if analysis.requires_system and not context.get("task_complete"):
@@ -295,48 +297,50 @@ class ComputerUseCrew:
             result = await self._execute_system(task, context)
             results.append(result)
 
-            if result.get("handoff_requested"):
-                suggested = result.get("suggested_agent")
-                print_handoff("SYSTEM", suggested.upper(), result.get("handoff_reason"))
+            if result.handoff_requested:
+                suggested = result.suggested_agent
+                print_handoff(
+                    "SYSTEM",
+                    suggested.upper() if suggested else "UNKNOWN",
+                    result.handoff_reason,
+                )
 
-                context["handoff_context"] = result.get("handoff_context")
+                context["handoff_context"] = result.handoff_context
 
                 if suggested == "gui":
                     print_agent_start("GUI (Handoff)")
                     handoff_result = await self._execute_gui(task, context)
                     results.append(handoff_result)
 
-                    if handoff_result.get("success"):
+                    if handoff_result.success:
                         print_success("GUI agent completed handoff task")
                         context["handoff_succeeded"] = True
                     else:
-                        print_failure(
-                            f"GUI agent also failed: {handoff_result.get('error')}"
-                        )
+                        print_failure(f"GUI agent also failed: {handoff_result.error}")
                         return self._build_result(task, analysis, results, False)
                 elif suggested == "browser":
                     print_agent_start("BROWSER (Handoff)")
                     handoff_result = await self._execute_browser(task, context)
                     results.append(handoff_result)
 
-                    if handoff_result.get("success"):
+                    if handoff_result.success:
                         print_success("Browser agent completed handoff task")
                         context["handoff_succeeded"] = True
                     else:
                         print_failure(
-                            f"Browser agent also failed: {handoff_result.get('error')}"
+                            f"Browser agent also failed: {handoff_result.error}"
                         )
                         return self._build_result(task, analysis, results, False)
-            elif result.get("success"):
+            elif result.success:
                 print_success("System task completed")
             else:
                 if not context.get("handoff_succeeded"):
                     print_failure(
-                        f"System task failed: {result.get('error', 'Unknown error')}"
+                        f"System task failed: {result.error or 'Unknown error'}"
                     )
                     return self._build_result(task, analysis, results, False)
 
-        overall_success = all(r.get("success", False) for r in results)
+        overall_success = all(r.success for r in results)
 
         self._print_header("TASK COMPLETE" if overall_success else "TASK FAILED")
         if overall_success:
@@ -346,53 +350,50 @@ class ComputerUseCrew:
 
         return self._build_result(task, analysis, results, overall_success)
 
-    async def _execute_browser(self, task: str, context: dict) -> dict:
+    async def _execute_browser(self, task: str, context: dict) -> ActionResult:
         """
         Execute browser agent with loop until completion.
         Browser-Use handles internal looping automatically.
-        Returns ActionResult converted to dict.
+        Returns ActionResult (typed).
         """
         print("  🔄 Browser-Use agent started (runs until task complete)...")
-        result = await self.browser_agent.execute_task(task, context=context)
-        return result.model_dump() if hasattr(result, "model_dump") else result
+        return await self.browser_agent.execute_task(task, context=context)
 
-    async def _execute_gui(self, task: str, context: dict) -> dict:
+    async def _execute_gui(self, task: str, context: dict) -> ActionResult:
         """
         Execute GUI agent with multi-step planning.
         GUI agent handles its own step loop.
-        Returns ActionResult converted to dict.
+        Returns ActionResult (typed).
         """
-        result = await self.gui_agent.execute_task(task, context=context)
-        return result.model_dump() if hasattr(result, "model_dump") else result
+        return await self.gui_agent.execute_task(task, context=context)
 
-    async def _execute_system(self, task: str, context: dict) -> dict:
+    async def _execute_system(self, task: str, context: dict) -> ActionResult:
         """
         Execute system agent with context from previous agents.
         Passes confirmation manager for command approval.
-        Returns ActionResult converted to dict.
+        Returns ActionResult (typed).
         """
         context["confirmation_manager"] = self.confirmation_manager
-        result = await self.system_agent.execute_task(task, context)
-        return result.model_dump() if hasattr(result, "model_dump") else result
+        return await self.system_agent.execute_task(task, context)
 
     def _print_header(self, text: str):
         """Print styled header."""
         width = 60
-        print(f"\n{'='*width}")
+        print(f"\n{'=' * width}")
         print(f"  {text}")
-        print(f"{'='*width}\n")
+        print(f"{'=' * width}\n")
 
     def _print_section(self, text: str):
         """Print styled section."""
-        print(f"{'─'*60}")
+        print(f"{'─' * 60}")
         print(f"  {text}")
-        print(f"{'─'*60}\n")
+        print(f"{'─' * 60}\n")
 
     def _build_result(self, task: str, analysis, results: list, success: bool) -> dict:
         """Build final result dictionary."""
         return {
             "task": task,
             "analysis": analysis.dict(),
-            "results": results,
+            "results": [r.model_dump() for r in results],
             "overall_success": success,
         }

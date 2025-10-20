@@ -44,7 +44,6 @@ class MacOSAccessibility:
 
                 print_success("Accessibility API ready with 100% accurate coordinates")
             except Exception:
-
                 print_warning("Accessibility permissions not granted")
                 print_info(
                     "Enable in: System Settings → Privacy & Security → Accessibility"
@@ -52,7 +51,6 @@ class MacOSAccessibility:
                 self.available = False
 
         except Exception as e:
-
             print_warning(f"Failed to initialize Accessibility: {e}")
             self.available = False
 
@@ -75,7 +73,6 @@ class MacOSAccessibility:
             element = self._find_element(app, label)
 
             if element:
-
                 identifier = getattr(element, "AXIdentifier", "N/A")
                 console.print(f"    [dim]Found: {identifier}[/dim]")
 
@@ -90,7 +87,6 @@ class MacOSAccessibility:
             return (False, None)
 
         except Exception as e:
-
             print_warning(f"Accessibility search failed: {e}")
             return (False, None)
 
