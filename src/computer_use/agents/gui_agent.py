@@ -336,6 +336,12 @@ class GUIAgent:
                     )
                     if res.get("data"):
                         data = res.get("data", {})
+                        if "output" in data:
+                            previous_work_context += f"     Output: {data['output']}\n"
+                        if "files" in data and data["files"]:
+                            previous_work_context += (
+                                f"     Files: {', '.join(data['files'])}\n"
+                            )
                         if "downloaded_file" in data:
                             previous_work_context += (
                                 f"     Downloaded: {data['downloaded_file']}\n"

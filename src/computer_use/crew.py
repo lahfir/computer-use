@@ -17,6 +17,8 @@ from .utils.ui import (
     print_success,
     print_failure,
     print_handoff,
+    print_warning,
+    print_info,
 )
 import yaml
 
@@ -198,8 +200,23 @@ class ComputerUseCrew:
             results.append(result)
             context["previous_results"].append(result)
 
+            browser_completed_attempt = result.get("data", {}).get(
+                "task_complete", False
+            )
+
             if result.get("success"):
-                print_success("Browser task completed")
+                print_success("Browser task completed successfully")
+
+                if browser_completed_attempt and not (
+                    analysis.requires_gui or analysis.requires_system
+                ):
+                    print_success("Task fully completed by Browser agent")
+                    return self._build_result(task, analysis, results, True)
+            elif browser_completed_attempt:
+                print_warning("Browser completed attempt but couldn't fully succeed")
+                print_info(
+                    f"Output: {result.get('data', {}).get('output', 'No output')}"
+                )
             else:
                 print_failure(
                     f"Browser task failed: {result.get('error', 'Unknown error')}"

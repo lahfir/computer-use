@@ -84,6 +84,9 @@ class BrowserTool:
             has_errors = False
             error_msgs = []
             final_output = None
+            agent_called_done = False
+            task_completed_successfully = False
+            files_to_display = []
 
             if result and hasattr(result, "errors") and result.errors():
                 has_errors = True
@@ -102,14 +105,34 @@ class BrowserTool:
                             hasattr(item.model_output, "done")
                             and item.model_output.done
                         ):
+                            agent_called_done = True
                             if hasattr(item.model_output.done, "text"):
                                 final_output = item.model_output.done.text
+                            if hasattr(item.model_output.done, "success"):
+                                task_completed_successfully = (
+                                    item.model_output.done.success
+                                )
+                            if hasattr(item.model_output.done, "files_to_display"):
+                                files_to_display = (
+                                    item.model_output.done.files_to_display
+                                )
 
-            if has_errors and error_msgs:
+            if agent_called_done:
+                return {
+                    "success": task_completed_successfully,
+                    "message": f"Browser task completed: {task}",
+                    "data": {
+                        "result": str(result),
+                        "output": final_output or "Task completed",
+                        "task_complete": agent_called_done,
+                        "files": files_to_display,
+                    },
+                }
+            elif has_errors and error_msgs:
                 return {
                     "success": False,
                     "error": "; ".join(error_msgs),
-                    "data": {"result": str(result)},
+                    "data": {"result": str(result), "output": final_output},
                 }
 
             return {
