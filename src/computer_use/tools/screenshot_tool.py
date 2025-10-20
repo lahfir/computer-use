@@ -4,9 +4,10 @@ Cross-platform screenshot capture tool.
 
 import base64
 import io
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 from PIL import Image
 import pyautogui
+import platform
 
 
 class ScreenshotTool:
@@ -20,13 +21,13 @@ class ScreenshotTool:
         Initialize and detect display scaling.
         """
         self.scaling_factor = self._detect_scaling()
+        self.os_type = platform.system().lower()
+        self.active_window_bounds = None  # Store active window bounds
 
     def _detect_scaling(self) -> float:
         """
         Detect display scaling factor (Retina = 2.0, normal = 1.0).
         """
-        import platform
-
         screen_size = pyautogui.size()
         test_screenshot = pyautogui.screenshot()
 
@@ -35,6 +36,148 @@ class ScreenshotTool:
             scaling = test_screenshot.width / screen_size.width
             return scaling
         return 1.0
+
+    def capture_active_window(
+        self, app_name: Optional[str] = None
+    ) -> Tuple[Image.Image, Dict[str, Any]]:
+        """
+        Capture ONLY the active window, not entire screen.
+
+        Args:
+            app_name: Optional app name to ensure correct window
+
+        Returns:
+            (PIL Image of window, dict with bounds and metadata)
+        """
+        try:
+            if self.os_type == "darwin":
+                return self._capture_active_window_macos(app_name)
+            elif self.os_type == "windows":
+                return self._capture_active_window_windows(app_name)
+            else:
+                return self._capture_active_window_linux(app_name)
+        except Exception as e:
+            print(f"  ⚠️  Window capture error: {e}, using full screen")
+            return self.capture(), {
+                "x": 0,
+                "y": 0,
+                "width": 0,
+                "height": 0,
+                "type": "fullscreen",
+            }
+
+    def _capture_active_window_macos(
+        self, app_name: Optional[str] = None
+    ) -> Tuple[Image.Image, Dict[str, Any]]:
+        """Capture active window on macOS using Quartz."""
+        from Quartz import (
+            CGWindowListCopyWindowInfo,
+            kCGWindowListOptionOnScreenOnly,
+            kCGNullWindowID,
+        )
+
+        window_list = CGWindowListCopyWindowInfo(
+            kCGWindowListOptionOnScreenOnly, kCGNullWindowID
+        )
+
+        target_window = None
+        for window in window_list:
+            owner_name = window.get("kCGWindowOwnerName", "")
+            layer = window.get("kCGWindowLayer", 999)
+
+            if layer == 0:
+                if app_name:
+                    if app_name.lower() in owner_name.lower():
+                        target_window = window
+                        break
+                else:
+                    target_window = window
+                    break
+
+        if not target_window:
+            print("  ⚠️  Window not found, using full screen")
+            return self.capture(), {
+                "x": 0,
+                "y": 0,
+                "width": 0,
+                "height": 0,
+                "type": "fullscreen",
+            }
+
+        bounds = target_window["kCGWindowBounds"]
+        x = int(bounds["X"])
+        y = int(bounds["Y"])
+        width = int(bounds["Width"])
+        height = int(bounds["Height"])
+
+        screen_width, screen_height = pyautogui.size()
+
+        if x < 0 or y < 0 or x + width > screen_width or y + height > screen_height:
+            print(f"  ⚠️  Window outside screen bounds, using full screen")
+            return self.capture(), {
+                "x": 0,
+                "y": 0,
+                "width": 0,
+                "height": 0,
+                "type": "fullscreen",
+            }
+
+        self.active_window_bounds = {"x": x, "y": y, "width": width, "height": height}
+
+        region = (x, y, width, height)
+        screenshot = self.capture(region=region)
+
+        print(
+            f"  📸 Captured {target_window.get('kCGWindowOwnerName', 'Unknown')} at ({x}, {y}, {width}x{height})"
+        )
+
+        return screenshot, self.active_window_bounds
+
+    def _capture_active_window_windows(
+        self, app_name: Optional[str] = None
+    ) -> Tuple[Image.Image, Dict[str, Any]]:
+        """
+        Capture active window on Windows.
+        """
+        # Fallback for now
+        return self.capture(), {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "type": "fullscreen",
+        }
+
+    def _capture_active_window_linux(
+        self, app_name: Optional[str] = None
+    ) -> Tuple[Image.Image, Dict[str, Any]]:
+        """
+        Capture active window on Linux.
+        """
+        # Fallback for now
+        return self.capture(), {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "type": "fullscreen",
+        }
+
+    def window_to_screen_coords(self, x: int, y: int) -> Tuple[int, int]:
+        """
+        Convert window-relative coordinates to screen-absolute coordinates.
+
+        Args:
+            x, y: Coordinates relative to window
+
+        Returns:
+            (x, y) in screen coordinates
+        """
+        if self.active_window_bounds:
+            screen_x = self.active_window_bounds["x"] + x
+            screen_y = self.active_window_bounds["y"] + y
+            return (screen_x, screen_y)
+        return (x, y)
 
     def capture(
         self, region: Optional[Tuple[int, int, int, int]] = None

@@ -1,5 +1,5 @@
 """
-macOS Accessibility API using atomacos for 100% accurate coordinates.
+macOS Accessibility API using atomacos for 100% accurate element interaction.
 """
 
 from typing import List, Optional, Dict, Any
@@ -9,21 +9,17 @@ import platform
 class MacOSAccessibility:
     """
     macOS accessibility using atomacos library.
-    Provides 100% accurate element coordinates from OS via AX APIs.
+    Provides 100% accurate element coordinates and direct interaction via AX APIs.
     """
 
     def __init__(self):
-        """
-        Initialize macOS accessibility with atomacos.
-        """
+        """Initialize macOS accessibility with atomacos."""
         self.available = self._check_availability()
         if self.available:
             self._initialize_api()
 
     def _check_availability(self) -> bool:
-        """
-        Check if atomacos is available.
-        """
+        """Check if atomacos is available and platform is macOS."""
         if platform.system().lower() != "darwin":
             return False
 
@@ -35,17 +31,13 @@ class MacOSAccessibility:
             return False
 
     def _initialize_api(self):
-        """
-        Initialize atomacos.
-        """
+        """Initialize atomacos and check accessibility permissions."""
         try:
             import atomacos
 
             self.atomacos = atomacos
 
-            # Check if we have accessibility permissions
             try:
-                # Try to get frontmost app to test permissions
                 app = atomacos.getAppRefByBundleId("com.apple.finder")
                 print("  ✅ Accessibility API ready with 100% accurate coordinates!")
             except Exception:
@@ -53,32 +45,55 @@ class MacOSAccessibility:
                 print(
                     "  ℹ️  Enable in: System Settings → Privacy & Security → Accessibility"
                 )
-                print("  ℹ️  Falling back to OCR (95-99% accuracy)")
                 self.available = False
 
         except Exception as e:
             print(f"  ⚠️  Failed to initialize Accessibility: {e}")
             self.available = False
 
-    def find_elements(
-        self,
-        role: Optional[str] = None,
-        label: Optional[str] = None,
-        title: Optional[str] = None,
-        app_name: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+    def click_element(self, label: str, app_name: Optional[str] = None) -> bool:
         """
-        Find UI elements using atomacos AX tree traversal.
-        Returns 100% accurate coordinates from macOS.
+        Find and click element directly using accessibility API.
+        This is the primary method for interaction.
 
         Args:
-            role: Accessibility role (Button, StaticText, etc.)
-            label: Element label or text to find
-            title: Window title
-            app_name: Application name
+            label: Text to search for in element (matches AXIdentifier, AXAttributedDescription, etc.)
+            app_name: Application name to search in
 
         Returns:
-            List of elements with center coordinates
+            True if clicked successfully
+        """
+        if not self.available:
+            return False
+
+        try:
+            app = self._get_app(app_name)
+            element = self._find_element(app, label)
+
+            if element:
+                identifier = getattr(element, "AXIdentifier", "N/A")
+                self._perform_click(element)
+                print(f"    ✅ Clicked '{identifier}' via Accessibility API")
+                return True
+
+            return False
+
+        except Exception as e:
+            print(f"    ⚠️  Accessibility click failed: {e}")
+            return False
+
+    def get_all_interactive_elements(
+        self, app_name: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all interactive elements (buttons, text fields, etc.) with their identifiers.
+        This allows the LLM to see what's available and choose the right identifier.
+
+        Args:
+            app_name: Application name to search in
+
+        Returns:
+            List of elements with their AXIdentifier, AXRole, and description
         """
         if not self.available:
             return []
@@ -86,218 +101,311 @@ class MacOSAccessibility:
         elements = []
 
         try:
-            if app_name:
-                app = self.atomacos.getAppRefByLocalizedName(app_name)
-                app_name_actual = app_name
-                print(
-                    f"  🔍 Accessibility: Searching {app_name_actual} (by name) for '{label}'"
-                )
-            else:
-                # Fallback to frontmost app
-                app = self.atomacos.NativeUIElement.getFrontmostApp()
-                app_name_actual = app.AXTitle if hasattr(app, "AXTitle") else "Unknown"
-                print(
-                    f"  🔍 Accessibility: Searching {app_name_actual} (frontmost) for '{label}'"
-                )
+            app = self._get_app(app_name)
+            windows = self._get_app_windows(app)
 
-            # Search for matching elements
-            if label:
-                elements = self._find_by_text(app, label, role)
-
-            print(f"  ✅ Found {len(elements)} elements with 100% accurate coordinates")
+            for window in windows:
+                self._collect_interactive_elements(window, elements)
 
         except Exception as e:
-            print(f"  ⚠️  Accessibility search error: {e}")
+            print(f"    ⚠️  Failed to collect elements: {e}")
 
         return elements
 
-    def _find_by_text(
-        self, app_element, text: str, role: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+    def _collect_interactive_elements(
+        self, container, elements: List[Dict[str, Any]], depth=0
+    ):
         """
-        Find elements by text in their title, value, or description.
+        Recursively collect all interactive elements (buttons, text fields, etc.)
+        with their identifiers for LLM context.
         """
-        elements = []
-        text_lower = text.lower()
+        if depth > 20:
+            return
 
         try:
-            app_windows = []
-            if hasattr(app_element, "AXWindows") and app_element.AXWindows:
-                app_windows = app_element.AXWindows
-            elif hasattr(app_element, "AXChildren") and app_element.AXChildren:
-                app_windows = [
-                    child
-                    for child in app_element.AXChildren
-                    if hasattr(child, "AXRole")
-                    and str(child.AXRole) in ["AXWindow", "AXSheet", "AXDrawer"]
-                ]
+            elem_role = getattr(container, "AXRole", "")
 
-            if not app_windows:
-                print(f"    ⚠️  No windows found for this app")
-                return elements
+            if str(elem_role) == "AXApplication":
+                if hasattr(container, "AXChildren") and container.AXChildren:
+                    for child in container.AXChildren:
+                        self._collect_interactive_elements(child, elements, depth + 1)
+                return
 
-            print(
-                f"    🪟 Searching ONLY {len(app_windows)} window(s) of this app (not system-wide)"
-            )
+            interactive_roles = [
+                "AXButton",
+                "AXTextField",
+                "AXTextArea",
+                "AXCheckBox",
+                "AXRadioButton",
+                "AXPopUpButton",
+                "AXMenuButton",
+                "AXSlider",
+            ]
 
-            def traverse(elem, depth=0):
-                if depth > 20:
-                    return
+            if any(role in str(elem_role) for role in interactive_roles):
+                identifier = getattr(container, "AXIdentifier", "")
+                description = ""
 
-                try:
-                    matches = False
-                    matched_text = None
+                if hasattr(container, "AXAttributedDescription"):
+                    try:
+                        desc_obj = container.AXAttributedDescription
+                        description = str(desc_obj).split("{")[0].strip()
+                    except:
+                        pass
 
-                    # Check title
-                    if hasattr(elem, "AXTitle") and elem.AXTitle:
-                        if text_lower in str(elem.AXTitle).lower():
-                            matches = True
-                            matched_text = str(elem.AXTitle)
+                if not description:
+                    description = getattr(container, "AXTitle", "") or getattr(
+                        container, "AXValue", ""
+                    )
 
-                    # Check value
-                    if not matches and hasattr(elem, "AXValue") and elem.AXValue:
-                        if text_lower in str(elem.AXValue).lower():
-                            matches = True
-                            matched_text = str(elem.AXValue)
+                if identifier or description:
+                    elements.append(
+                        {
+                            "identifier": identifier,
+                            "role": str(elem_role).replace("AX", ""),
+                            "description": description,
+                        }
+                    )
 
-                    # Check description
-                    if (
-                        not matches
-                        and hasattr(elem, "AXDescription")
-                        and elem.AXDescription
-                    ):
-                        if text_lower in str(elem.AXDescription).lower():
-                            matches = True
-                            matched_text = str(elem.AXDescription)
+            if hasattr(container, "AXChildren") and container.AXChildren:
+                for child in container.AXChildren:
+                    self._collect_interactive_elements(child, elements, depth + 1)
 
-                    # Check role if specified
-                    if matches and role:
-                        elem_role = getattr(elem, "AXRole", "")
-                        if role.lower() not in str(elem_role).lower():
-                            matches = False
+        except:
+            pass
 
-                    # If matches and has position/size, add it
-                    if matches:
-                        try:
-                            position = elem.AXPosition
-                            size = elem.AXSize
-                            x, y = position
-                            w, h = size
+    def find_elements(
+        self,
+        label: Optional[str] = None,
+        role: Optional[str] = None,
+        app_name: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Find UI elements and return their coordinates.
+        Fallback method when direct clicking fails.
 
-                            elements.append(
-                                {
-                                    "center": (int(x + w / 2), int(y + h / 2)),
-                                    "bounds": (int(x), int(y), int(w), int(h)),
-                                    "role": getattr(elem, "AXRole", None),
-                                    "title": matched_text,
-                                    "detection_method": "accessibility",
-                                    "confidence": 1.0,  # 100% accurate from OS
-                                }
-                            )
-                        except:
-                            pass  # Element has no position/size
+        Args:
+            label: Element label or text to find
+            role: Accessibility role (Button, StaticText, etc.)
+            app_name: Application name
 
-                    # Traverse children
-                    if hasattr(elem, "AXChildren") and elem.AXChildren:
-                        for child in elem.AXChildren:
-                            traverse(child, depth + 1)
+        Returns:
+            List of elements with coordinates and metadata
+        """
+        if not self.available:
+            return []
 
-                except:
-                    pass  # Skip problematic elements
+        elements = []
 
-            for window in app_windows:
-                traverse(window)
+        try:
+            app = self._get_app(app_name)
+            windows = self._get_app_windows(app)
+
+            print(f"    🪟 Searching {len(windows)} window(s) for '{label}'")
+
+            for window in windows:
+                self._traverse_and_collect(window, label, role, elements)
+
+            print(f"  ✅ Found {len(elements)} elements")
 
         except Exception as e:
             print(f"    Traversal error: {e}")
 
         return elements
 
-    def perform_action(self, element: Dict[str, Any], action: str, **kwargs) -> bool:
-        """
-        Perform action on element using Accessibility API.
+    def _get_app(self, app_name: Optional[str] = None):
+        """Get application reference by name or frontmost app."""
+        if app_name:
+            return self.atomacos.getAppRefByLocalizedName(app_name)
+        else:
+            return self.atomacos.NativeUIElement.getFrontmostApp()
 
-        Args:
-            element: Element dict with position info
-            action: Action to perform (click, type, scroll, etc.)
-            **kwargs: Additional action parameters
+    def _get_app_windows(self, app):
+        """Get all windows for an application."""
+        if hasattr(app, "AXWindows") and app.AXWindows:
+            return app.AXWindows
+        elif hasattr(app, "AXChildren") and app.AXChildren:
+            return [
+                child
+                for child in app.AXChildren
+                if hasattr(child, "AXRole")
+                and str(child.AXRole) in ["AXWindow", "AXSheet", "AXDrawer"]
+            ]
+        return []
 
-        Returns:
-            True if action succeeded
+    def _find_element(self, app, label: str, depth=0):
         """
-        if not self.available:
-            return False
+        Recursively find element by label.
+        Returns the actual atomacos element object for direct interaction.
+        """
+        if depth > 20:
+            return None
+
+        windows = self._get_app_windows(app)
+        if not windows:
+            return None
+
+        for window in windows:
+            result = self._search_tree_for_element(window, label.lower(), depth)
+            if result:
+                return result
+
+        return None
+
+    def _search_tree_for_element(self, container, target_text, depth=0):
+        """
+        Recursively search accessibility tree for element with target text.
+        Searches AXIdentifier, AXAttributedDescription, AXTitle, AXValue, etc.
+        """
+        if depth > 20:
+            return None
 
         try:
-            if action == "click":
-                # Use AXPress action if available
-                center = element["center"]
-                x, y = center
-                # Fall back to pyautogui for clicking
-                import pyautogui
+            elem_role = getattr(container, "AXRole", "")
 
-                pyautogui.click(x, y)
-                return True
+            if str(elem_role) == "AXApplication":
+                if hasattr(container, "AXChildren") and container.AXChildren:
+                    for child in container.AXChildren:
+                        result = self._search_tree_for_element(
+                            child, target_text, depth + 1
+                        )
+                        if result:
+                            return result
+                return None
 
-            elif action == "type":
-                text = kwargs.get("text", "")
-                if text:
-                    import pyautogui
+            if self._element_matches_text(container, target_text):
+                return container
 
-                    pyautogui.write(text, interval=0.05)
+            if hasattr(container, "AXChildren") and container.AXChildren:
+                for child in container.AXChildren:
+                    result = self._search_tree_for_element(
+                        child, target_text, depth + 1
+                    )
+                    if result:
+                        return result
+
+        except:
+            pass
+
+        return None
+
+    def _element_matches_text(self, element, target_text):
+        """
+        Check if element's text attributes match the target text.
+        Checks AXIdentifier, AXAttributedDescription, AXTitle, AXValue, AXDescription.
+        """
+        try:
+            if hasattr(element, "AXIdentifier") and element.AXIdentifier:
+                identifier = str(element.AXIdentifier).lower()
+                if target_text in identifier or identifier in target_text:
                     return True
 
-            elif action == "scroll":
-                direction = kwargs.get("direction", "down")
-                amount = kwargs.get("amount", 3)
-                center = element.get("center")
-                if center:
-                    x, y = center
-                    import pyautogui
+            if (
+                hasattr(element, "AXAttributedDescription")
+                and element.AXAttributedDescription
+            ):
+                try:
+                    desc_str = str(element.AXAttributedDescription).lower()
+                    if target_text in desc_str or desc_str.startswith(target_text):
+                        return True
+                except:
+                    pass
 
-                    pyautogui.moveTo(x, y)
-                    if direction == "down":
-                        pyautogui.scroll(-amount * 100)
-                    else:
-                        pyautogui.scroll(amount * 100)
+            if hasattr(element, "AXTitle") and element.AXTitle:
+                if target_text in str(element.AXTitle).lower():
                     return True
 
-            elif action == "double_click":
-                center = element["center"]
-                x, y = center
-                import pyautogui
+            if hasattr(element, "AXValue") and element.AXValue:
+                if target_text in str(element.AXValue).lower():
+                    return True
 
-                pyautogui.doubleClick(x, y)
-                return True
+            if hasattr(element, "AXDescription") and element.AXDescription:
+                if target_text in str(element.AXDescription).lower():
+                    return True
 
-            elif action == "right_click":
-                center = element["center"]
-                x, y = center
-                import pyautogui
+        except:
+            pass
 
-                pyautogui.rightClick(x, y)
-                return True
+        return False
 
+    def _perform_click(self, element):
+        """Perform click action on element using atomacos."""
+        try:
+            if hasattr(element, "Press"):
+                element.Press()
+            elif hasattr(element, "AXPress"):
+                element.AXPress()
+            else:
+                raise Exception("Element does not support click action")
         except Exception as e:
-            print(f"  ⚠️  Action {action} failed: {e}")
-            return False
+            raise Exception(f"Click action failed: {e}")
 
-        return False
+    def _traverse_and_collect(self, container, label, role, elements, depth=0):
+        """Traverse accessibility tree and collect matching elements with coordinates."""
+        if depth > 20:
+            return
 
-    def click_element(self, element: Dict[str, Any]) -> bool:
-        """
-        Clicking handled by InputTool using AX coordinates.
-        """
-        return False
+        try:
+            elem_role = getattr(container, "AXRole", "")
 
-    def type_into_element(self, element: Dict[str, Any], text: str) -> bool:
-        """
-        Typing handled by InputTool.
-        """
-        return False
+            if str(elem_role) == "AXApplication":
+                if hasattr(container, "AXChildren") and container.AXChildren:
+                    for child in container.AXChildren:
+                        self._traverse_and_collect(
+                            child, label, role, elements, depth + 1
+                        )
+                return
 
-    def get_window_tree(self, app_name: str) -> Dict[str, Any]:
-        """
-        Get full UI hierarchy for debugging.
-        """
-        return {}
+            matches = False
+            matched_text = None
+
+            if label:
+                if hasattr(container, "AXTitle") and container.AXTitle:
+                    if label.lower() in str(container.AXTitle).lower():
+                        matches = True
+                        matched_text = str(container.AXTitle)
+
+                if not matches and hasattr(container, "AXValue") and container.AXValue:
+                    if label.lower() in str(container.AXValue).lower():
+                        matches = True
+                        matched_text = str(container.AXValue)
+
+                if (
+                    not matches
+                    and hasattr(container, "AXDescription")
+                    and container.AXDescription
+                ):
+                    if label.lower() in str(container.AXDescription).lower():
+                        matches = True
+                        matched_text = str(container.AXDescription)
+
+            if matches and role:
+                if role.lower() not in str(elem_role).lower():
+                    matches = False
+
+            if matches:
+                try:
+                    position = container.AXPosition
+                    size = container.AXSize
+                    x, y = position
+                    w, h = size
+
+                    elements.append(
+                        {
+                            "center": (int(x + w / 2), int(y + h / 2)),
+                            "bounds": (int(x), int(y), int(w), int(h)),
+                            "role": elem_role,
+                            "title": matched_text,
+                            "detection_method": "accessibility",
+                            "confidence": 1.0,
+                        }
+                    )
+                except:
+                    pass
+
+            if hasattr(container, "AXChildren") and container.AXChildren:
+                for child in container.AXChildren:
+                    self._traverse_and_collect(child, label, role, elements, depth + 1)
+
+        except:
+            pass
