@@ -113,7 +113,7 @@ class ScreenshotTool:
         screen_width, screen_height = pyautogui.size()
 
         if x < 0 or y < 0 or x + width > screen_width or y + height > screen_height:
-            print(f"  ⚠️  Window outside screen bounds, using full screen")
+            print("  ⚠️  Window outside screen bounds, using full screen")
             return self.capture(), {
                 "x": 0,
                 "y": 0,

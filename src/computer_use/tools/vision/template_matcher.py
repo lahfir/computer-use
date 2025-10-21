@@ -2,7 +2,7 @@
 OpenCV template matching for visual element detection.
 """
 
-from typing import List, Optional
+from typing import List
 from PIL import Image
 import numpy as np
 import cv2

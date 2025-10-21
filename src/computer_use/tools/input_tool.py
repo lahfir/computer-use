@@ -2,7 +2,7 @@
 Cross-platform input control for mouse and keyboard.
 """
 
-from typing import List, Optional
+from typing import Optional
 import pyautogui
 import time
 

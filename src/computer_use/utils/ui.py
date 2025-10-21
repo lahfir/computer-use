@@ -5,11 +5,7 @@ Professional terminal UI using rich.
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.syntax import Syntax
-from rich.markdown import Markdown
 from rich import box
-from typing import Optional
 
 console = Console()
 
@@ -52,6 +48,14 @@ def print_platform_info(capabilities):
         f"{capabilities.screen_resolution[0]}x{capabilities.screen_resolution[1]}",
     )
     table.add_row("Scaling", f"{capabilities.scaling_factor}x")
+
+    if capabilities.gpu_available:
+        gpu_info = (
+            f"{capabilities.gpu_type} ({capabilities.gpu_device_count} device(s))"
+        )
+        table.add_row("GPU", f"✅ {gpu_info}")
+    else:
+        table.add_row("GPU", "⚠️  Not available (CPU only)")
 
     console.print(table)
     console.print()

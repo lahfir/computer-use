@@ -3,9 +3,9 @@ Platform detection system to identify OS capabilities and available APIs.
 """
 
 import platform
-import sys
 from typing import Tuple, List, Optional, Literal
 from pydantic import BaseModel, Field
+from ..schemas.ocr_result import GPUInfo
 
 
 class PlatformCapabilities(BaseModel):
@@ -31,6 +31,13 @@ class PlatformCapabilities(BaseModel):
     supported_tools: List[str] = Field(
         description="List of available automation tools", default_factory=list
     )
+    gpu_available: bool = Field(
+        description="Whether GPU is available for acceleration", default=False
+    )
+    gpu_type: Optional[str] = Field(
+        default=None, description="Type of GPU (CUDA, Metal/MPS, etc.)"
+    )
+    gpu_device_count: int = Field(description="Number of GPU devices", default=0)
 
 
 def detect_platform() -> PlatformCapabilities:
@@ -77,6 +84,7 @@ def detect_platform() -> PlatformCapabilities:
 
     screen_resolution = _get_screen_resolution()
     scaling_factor = _get_scaling_factor()
+    gpu_info = _detect_gpu()
 
     return PlatformCapabilities(
         os_type=os_type,
@@ -86,6 +94,9 @@ def detect_platform() -> PlatformCapabilities:
         screen_resolution=screen_resolution,
         scaling_factor=scaling_factor,
         supported_tools=supported_tools,
+        gpu_available=gpu_info.available,
+        gpu_type=gpu_info.type,
+        gpu_device_count=gpu_info.device_count,
     )
 
 
@@ -165,3 +176,48 @@ def _get_scaling_factor() -> float:
             pass
 
     return 1.0
+
+
+def _detect_gpu() -> GPUInfo:
+    """
+    Detect GPU availability and type.
+
+    Returns:
+        GPUInfo object with GPU information
+    """
+    system = platform.system().lower()
+
+    if system == "darwin":
+        try:
+            import subprocess
+
+            result = subprocess.run(
+                ["sysctl", "-n", "machdep.cpu.brand_string"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if "Apple" in result.stdout:
+                return GPUInfo(
+                    available=True,
+                    type="Apple Silicon (Metal/MPS)",
+                    device_count=1,
+                )
+        except Exception:
+            pass
+    else:
+        try:
+            import paddle
+
+            if paddle.device.is_compiled_with_cuda():
+                gpu_count = paddle.device.cuda.device_count()
+                if gpu_count > 0:
+                    return GPUInfo(
+                        available=True,
+                        type="CUDA",
+                        device_count=gpu_count,
+                    )
+        except (ImportError, Exception):
+            pass
+
+    return GPUInfo(available=False, type=None, device_count=0)

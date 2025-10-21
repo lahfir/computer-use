@@ -3,7 +3,7 @@ Safety checker for validating potentially destructive operations.
 """
 
 import re
-from typing import List, Tuple
+from typing import Tuple
 
 
 class SafetyChecker:

@@ -3,10 +3,9 @@ Cross-platform permission checker and manager.
 Ensures all required permissions are granted before running automation.
 """
 
-import sys
 import platform
 import subprocess
-from typing import Dict, List, Tuple
+from typing import Dict, List
 from .ui import console
 from rich.panel import Panel
 from rich.table import Table

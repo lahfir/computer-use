@@ -247,6 +247,25 @@ class MacOSAccessibility:
         else:
             return self.atomacos.NativeUIElement.getFrontmostApp()
 
+    def is_app_running(self, app_name: str) -> bool:
+        """
+        Check if an application is currently running.
+
+        Args:
+            app_name: Application name to check
+
+        Returns:
+            True if app is running, False otherwise
+        """
+        if not self.available:
+            return False
+
+        try:
+            app = self._get_app(app_name)
+            return app is not None
+        except Exception:
+            return False
+
     def _get_app_windows(self, app):
         """Get all windows for an application."""
         if hasattr(app, "AXWindows") and app.AXWindows:

@@ -2,7 +2,7 @@
 Command confirmation system for user approval of shell commands.
 """
 
-from typing import Set, Optional
+from typing import Set
 
 
 class CommandConfirmation:

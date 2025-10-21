@@ -2,10 +2,9 @@
 Safe file operations tool.
 """
 
-import os
 import shutil
 from pathlib import Path
-from typing import Optional, List
+from typing import List
 
 
 class FileTool:

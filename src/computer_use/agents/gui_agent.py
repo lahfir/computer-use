@@ -4,8 +4,10 @@ GUI agent with screenshot-driven loop (like Browser-Use).
 
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 from PIL import Image
+from enum import Enum
 from ..schemas.actions import ActionResult
 from ..schemas.browser_output import BrowserOutput
+from ..schemas.tool_types import ActionExecutionResult
 from ..utils.ui import (
     print_info,
     print_step,
@@ -22,20 +24,44 @@ if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
 
 
+class GUIActionType(str, Enum):
+    """
+    Enumeration of all possible GUI actions.
+    """
+
+    OPEN_APP = "open_app"
+    CLICK = "click"
+    DOUBLE_CLICK = "double_click"
+    RIGHT_CLICK = "right_click"
+    TYPE = "type"
+    SCROLL = "scroll"
+    READ = "read"
+    DONE = "done"
+
+
+class ScrollDirection(str, Enum):
+    """
+    Enumeration of scroll directions.
+    """
+
+    UP = "up"
+    DOWN = "down"
+
+
 class GUIAction(BaseModel):
     """
     Single action to take based on current screenshot.
     """
 
-    action: str = Field(
-        description="Action: open_app, click, type, scroll, double_click, right_click, read, or done"
+    action: GUIActionType = Field(
+        description="Action type: open_app, click, type, scroll, double_click, right_click, read, or done"
     )
     target: str = Field(description="What to interact with")
     input_text: Optional[str] = Field(
         default=None, description="Text to type if action is 'type'"
     )
-    scroll_direction: Optional[str] = Field(
-        default="down",
+    scroll_direction: ScrollDirection = Field(
+        default=ScrollDirection.DOWN,
         description="Direction to scroll: 'up' or 'down' (for scroll action)",
     )
     reasoning: str = Field(description="Why taking this action")
@@ -97,6 +123,19 @@ class GUIAgent:
         while step < self.max_steps and not task_complete:
             step += 1
 
+            should_activate = True
+            if last_action and last_action.action in [
+                GUIActionType.RIGHT_CLICK,
+                GUIActionType.CLICK,
+            ]:
+                should_activate = False
+
+            if should_activate and self.current_app:
+                process_tool = self.tool_registry.get_tool("process")
+                if process_tool:
+                    process_tool.launch_app(self.current_app)
+                    await asyncio.sleep(0.3)
+
             screenshot_tool = self.tool_registry.get_tool("screenshot")
             screenshot = screenshot_tool.capture()
 
@@ -119,7 +158,7 @@ class GUIAgent:
                 self.action_history,
             )
 
-            print_step(step, action.action, action.target, action.reasoning)
+            print_step(step, action.action.value, action.target, action.reasoning)
 
             if len(self.action_history) >= 4:
                 recent = self.action_history[-4:]
@@ -141,7 +180,7 @@ class GUIAgent:
                             error=f"Back-and-forth loop: {targets[0]} ↔ {targets[1]}",
                             handoff_requested=True,
                             suggested_agent="system",
-                            handoff_reason=f"GUI stuck in loop, System agent might handle better",
+                            handoff_reason="GUI stuck in loop, System agent might handle better",
                             handoff_context={
                                 "original_task": task,
                                 "loop_pattern": targets,
@@ -156,13 +195,13 @@ class GUIAgent:
             ):
                 repeated_actions += 1
                 if repeated_actions >= 2:
-                    print_warning(f"Repeated same action 3 times - stopping!")
+                    print_warning("Repeated same action 3 times - stopping!")
                     return ActionResult(
                         success=False,
-                        action_taken=f"Stuck in loop: {action.action} → {action.target}",
+                        action_taken=f"Stuck in loop: {action.action.value} → {action.target}",
                         method_used="loop_detection",
                         confidence=0.0,
-                        error=f"Repeated same action 3 times",
+                        error="Repeated same action 3 times",
                     )
             else:
                 repeated_actions = 0
@@ -172,7 +211,7 @@ class GUIAgent:
             self.action_history.append(
                 {
                     "step": step,
-                    "action": action.action,
+                    "action": action.action.value,
                     "target": action.target,
                     "success": step_result.get("success"),
                     "reasoning": action.reasoning,
@@ -198,12 +237,14 @@ class GUIAgent:
                         handoff_reason=f"Could not complete GUI action: {step_result.get('error')}",
                         handoff_context={
                             "original_task": task,
-                            "failed_action": action.action if action else "unknown",
+                            "failed_action": (
+                                action.action.value if action else "unknown"
+                            ),
                             "failed_target": action.target if action else "unknown",
                             "current_app": self.current_app,
                             "steps_completed": step,
                             "last_successful_action": (
-                                last_action.action if last_action else None
+                                last_action.action.value if last_action else None
                             ),
                         },
                     )
@@ -219,14 +260,14 @@ class GUIAgent:
                         repeated_clicks += 1
                         if repeated_clicks >= 3:
                             print(
-                                f"    ⚠️  WARNING: Clicked same location 3 times - might be stuck!"
+                                "    ⚠️  WARNING: Clicked same location 3 times - might be stuck!"
                             )
                             return ActionResult(
                                 success=False,
                                 action_taken=f"Stuck in loop at ({x}, {y})",
                                 method_used="ocr",
                                 confidence=0.0,
-                                error=f"Clicked same coordinates 3 times",
+                                error="Clicked same coordinates 3 times",
                             )
                     else:
                         repeated_clicks = 0
@@ -236,7 +277,11 @@ class GUIAgent:
             last_action = action
             task_complete = action.is_complete
 
-            await asyncio.sleep(0.8)
+            status = "✅ Task complete" if task_complete else "⏳ Continuing..."
+            console.print(f"  [dim]{status}[/dim]")
+
+            if not task_complete:
+                await asyncio.sleep(0.5)
 
         if task_complete:
             return ActionResult(
@@ -246,7 +291,7 @@ class GUIAgent:
                 confidence=0.95,
                 data={
                     "steps": step,
-                    "final_action": last_action.action if last_action else None,
+                    "final_action": last_action.action.value if last_action else None,
                     "task_complete": True,
                 },
             )
@@ -274,7 +319,7 @@ class GUIAgent:
         """
         if not self.llm_client:
             return GUIAction(
-                action="done",
+                action=GUIActionType.DONE,
                 target="No LLM available",
                 reasoning="Fallback action",
                 is_complete=True,
@@ -283,7 +328,7 @@ class GUIAgent:
         last_action_text = ""
         if last_action:
             last_action_text = (
-                f"\nLast action: {last_action.action} → {last_action.target}"
+                f"\nLast action: {last_action.action.value} → {last_action.target}"
             )
 
         history_context = ""
@@ -352,12 +397,12 @@ class GUIAgent:
 
                                 if browser_output.has_files():
                                     previous_work_context += (
-                                        f"\n📁 DOWNLOADED FILES (use these paths!):\n"
+                                        "\n📁 DOWNLOADED FILES (use these paths!):\n"
                                     )
                                     for file_path in browser_output.files:
                                         previous_work_context += f"   • {file_path}\n"
 
-                                    previous_work_context += f"\n📊 File Details:\n"
+                                    previous_work_context += "\n📊 File Details:\n"
                                     for file_detail in browser_output.file_details:
                                         size_kb = file_detail.size / 1024
                                         previous_work_context += f"   • {file_detail.name} ({size_kb:.1f} KB)\n"
@@ -511,14 +556,14 @@ Think step-by-step:
             # Fallback for first step
             if step == 1 and "settings" in task.lower():
                 return GUIAction(
-                    action="open_app",
+                    action=GUIActionType.OPEN_APP,
                     target="System Settings",
                     reasoning="Fallback: opening settings app",
                     is_complete=False,
                 )
             else:
                 return GUIAction(
-                    action="done",
+                    action=GUIActionType.DONE,
                     target="fallback",
                     reasoning="LLM unavailable",
                     is_complete=True,
@@ -526,37 +571,50 @@ Think step-by-step:
 
     async def _execute_action(
         self, action: GUIAction, screenshot: Image.Image
-    ) -> Dict[str, Any]:
+    ) -> ActionExecutionResult:
         """
         Execute a single GUI action.
-        """
-        if action.action == "open_app":
-            return await self._open_application(action.target)
-        elif action.action == "click":
-            return await self._click_element(action.target, screenshot)
-        elif action.action == "double_click":
-            return await self._double_click_element(action.target, screenshot)
-        elif action.action == "right_click":
-            return await self._right_click_element(action.target, screenshot)
-        elif action.action == "type":
-            return await self._type_text(action.input_text)
-        elif action.action == "scroll":
-            return await self._scroll(action.scroll_direction or "down")
-        elif action.action == "read":
-            return await self._read_screen(action.target, screenshot)
-        elif action.action == "done":
-            return {"success": True, "method": "done"}
-        else:
-            return {
-                "success": False,
-                "method": "unknown",
-                "error": f"Unknown action: {action.action}",
-            }
 
-    async def _open_application(self, app_name: str) -> Dict[str, Any]:
+        Args:
+            action: GUIAction to execute
+            screenshot: Current screenshot
+
+        Returns:
+            ActionExecutionResult with execution details
+        """
+        if action.action == GUIActionType.OPEN_APP:
+            return await self._open_application(action.target)
+        elif action.action == GUIActionType.CLICK:
+            return await self._click_element(action.target, screenshot)
+        elif action.action == GUIActionType.DOUBLE_CLICK:
+            return await self._double_click_element(action.target, screenshot)
+        elif action.action == GUIActionType.RIGHT_CLICK:
+            return await self._right_click_element(action.target, screenshot)
+        elif action.action == GUIActionType.TYPE:
+            return await self._type_text(action.input_text)
+        elif action.action == GUIActionType.SCROLL:
+            return await self._scroll(action.scroll_direction.value)
+        elif action.action == GUIActionType.READ:
+            return await self._read_screen(action.target, screenshot)
+        elif action.action == GUIActionType.DONE:
+            return ActionExecutionResult(success=True, method="done")
+        else:
+            return ActionExecutionResult(
+                success=False,
+                method="unknown",
+                error=f"Unknown action: {action.action}",
+            )
+
+    async def _open_application(self, app_name: str) -> ActionExecutionResult:
         """
         Open an application and wait for it to be ready.
         Uses dynamic wait - checks if app windows are available.
+
+        Args:
+            app_name: Application name to open
+
+        Returns:
+            ActionExecutionResult with execution details
         """
         process_tool = self.tool_registry.get_tool("process")
 
@@ -567,18 +625,16 @@ Think step-by-step:
                 print(f"    📱 Tracking current app: {app_name}")
 
                 await self._wait_for_app_ready(app_name)
-            return {
-                "success": result.get("success", False),
-                "method": "process",
-            }
+            return ActionExecutionResult(
+                success=result.get("success", False), method="process"
+            )
         except Exception as e:
-            return {"success": False, "method": "process", "error": str(e)}
+            return ActionExecutionResult(success=False, method="process", error=str(e))
 
     async def _wait_for_app_ready(self, app_name: str) -> None:
         """
         Smart dynamic wait for app to be ready.
-        Checks if app has accessible windows with interactive elements.
-        No hardcoded max wait - stops as soon as app is ready or clearly failed.
+        Uses accessibility API to check if app is already running.
 
         Args:
             app_name: Application name
@@ -586,43 +642,87 @@ Think step-by-step:
         accessibility_tool = self.tool_registry.get_tool("accessibility")
 
         if not accessibility_tool or not accessibility_tool.available:
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(0.3)
+            print(f"    ✅ {app_name} ready")
             return
 
-        print(f"    ⏳ Waiting for {app_name} to load...")
+        if accessibility_tool.is_app_running(app_name):
+            print(f"    ✅ {app_name} ready (already running)")
+            return
 
+        max_attempts = 10
         attempt = 0
-        initial_wait = 3
 
-        while attempt < initial_wait:
+        while attempt < max_attempts:
+            await asyncio.sleep(0.2)
+            attempt += 1
+
             try:
                 elements = accessibility_tool.get_all_interactive_elements(app_name)
-
-                if elements and len(elements) > 5:
-                    print(
-                        f"    ✅ {app_name} ready with {len(elements)} interactive elements (loaded in {(attempt + 1) * 0.3:.1f}s)"
-                    )
-                    await asyncio.sleep(0.2)
+                if elements and len(elements) > 3:
+                    elapsed = attempt * 0.2
+                    print(f"    ✅ {app_name} ready ({elapsed:.1f}s)")
                     return
             except Exception:
                 pass
 
-            await asyncio.sleep(0.3)
-            attempt += 1
-
-        print(f"    ✅ {app_name} ready (loaded in ~{initial_wait * 0.3:.1f}s)")
-        await asyncio.sleep(0.2)
+        print(f"    ✅ {app_name} ready")
+        await asyncio.sleep(0.1)
 
     async def _click_element(
         self, target: str, screenshot: Image.Image
-    ) -> Dict[str, Any]:
+    ) -> ActionExecutionResult:
         """
         Click element using multi-tier accuracy system.
         TIER 1A: Accessibility native click → TIER 1B: Accessibility coordinates → TIER 2: OCR
+
+        Args:
+            target: Element to click
+            screenshot: Current screenshot
+
+        Returns:
+            ActionExecutionResult with click details
         """
+        empty_space_keywords = [
+            "empty space",
+            "blank area",
+            "empty area",
+            "blank space",
+            "background",
+        ]
+
+        target_lower = target.lower()
+        is_empty_space = any(
+            keyword in target_lower for keyword in empty_space_keywords
+        )
+
+        if is_empty_space:
+            accessibility_tool = self.tool_registry.get_tool("accessibility")
+            if accessibility_tool and self.current_app:
+                bounds = accessibility_tool.get_app_window_bounds(self.current_app)
+                if bounds:
+                    x, y, w, h = bounds
+                    center_x = x + w // 2
+                    center_y = y + h // 2
+
+                    input_tool = self.tool_registry.get_tool("input")
+                    success = input_tool.click(center_x, center_y, validate=True)
+
+                    console.print(
+                        f"    [green]Clicked empty space[/green] at ({center_x}, {center_y})"
+                    )
+
+                    return ActionExecutionResult(
+                        success=success,
+                        method="semantic",
+                        coordinates=(center_x, center_y),
+                        matched_text="empty space",
+                        confidence=1.0,
+                    )
+
         accessibility_tool = self.tool_registry.get_tool("accessibility")
         if accessibility_tool and accessibility_tool.available:
-            print(f"    🎯 TIER 1: Accessibility API...")
+            console.print("    [cyan]TIER 1:[/cyan] Accessibility API")
 
             if hasattr(accessibility_tool, "click_element"):
                 clicked, element = accessibility_tool.click_element(
@@ -630,15 +730,15 @@ Think step-by-step:
                 )
 
                 if clicked:
-                    return {
-                        "success": True,
-                        "method": "accessibility_native",
-                        "coordinates": None,
-                        "matched_text": target,
-                        "confidence": 1.0,
-                    }
+                    return ActionExecutionResult(
+                        success=True,
+                        method="accessibility_native",
+                        coordinates=None,
+                        matched_text=target,
+                        confidence=1.0,
+                    )
                 elif element:
-                    print(f"    ⚠️  Native click failed, using element coordinates...")
+                    print("    ⚠️  Native click failed, using element coordinates...")
                     try:
                         pos = element.AXPosition
                         size = element.AXSize
@@ -652,13 +752,13 @@ Think step-by-step:
 
                         input_tool = self.tool_registry.get_tool("input")
                         success = input_tool.click(x, y, validate=True)
-                        return {
-                            "success": success,
-                            "method": "accessibility_coordinates",
-                            "coordinates": (x, y),
-                            "matched_text": identifier,
-                            "confidence": 1.0,
-                        }
+                        return ActionExecutionResult(
+                            success=success,
+                            method="accessibility_coordinates",
+                            coordinates=(x, y),
+                            matched_text=identifier,
+                            confidence=1.0,
+                        )
                     except Exception as e:
                         print(f"    ⚠️  Could not get element coordinates: {e}")
 
@@ -673,19 +773,19 @@ Think step-by-step:
 
                 input_tool = self.tool_registry.get_tool("input")
                 success = input_tool.click(x, y, validate=True)
-                return {
-                    "success": success,
-                    "method": "accessibility_coordinates",
-                    "coordinates": (x, y),
-                    "matched_text": elem["title"],
-                    "confidence": 1.0,
-                }
+                return ActionExecutionResult(
+                    success=success,
+                    method="accessibility_coordinates",
+                    coordinates=(x, y),
+                    matched_text=elem["title"],
+                    confidence=1.0,
+                )
             else:
-                print(f"    ⚠️  Element not found in accessibility tree")
+                console.print("    [dim]Element not found in accessibility tree[/dim]")
         else:
-            print(f"    ⚠️  Accessibility unavailable")
+            console.print("    [dim]Accessibility unavailable[/dim]")
 
-        print(f"    🎯 TIER 2: OCR...")
+        console.print("    [cyan]TIER 2:[/cyan] OCR")
         ocr_tool = self.tool_registry.get_tool("ocr")
         screenshot_tool = self.tool_registry.get_tool("screenshot")
         scaling = getattr(screenshot_tool, "scaling_factor", 1.0)
@@ -709,7 +809,6 @@ Think step-by-step:
                     )
                     x_offset = x
                     y_offset = y
-                    print(f"    🪟 Cropped to {self.current_app} window for OCR")
                 except Exception:
                     pass
 
@@ -718,25 +817,25 @@ Think step-by-step:
 
             if text_matches:
                 element = text_matches[0]
-                x_raw, y_raw = element["center"]
+                x_raw, y_raw = element.center
                 x_screen = int(x_raw / scaling) + x_offset
                 y_screen = int(y_raw / scaling) + y_offset
 
-                print(
-                    f"    ✅ OCR found '{element['text']}' at ({x_screen}, {y_screen})"
+                console.print(
+                    f"    [green]Found[/green] '{element.text}' at ({x_screen}, {y_screen})"
                 )
 
                 input_tool = self.tool_registry.get_tool("input")
                 success = input_tool.click(x_screen, y_screen, validate=True)
-                return {
-                    "success": success,
-                    "method": "ocr",
-                    "coordinates": (x_screen, y_screen),
-                    "matched_text": element["text"],
-                    "confidence": element["confidence"],
-                }
-        except Exception as e:
-            print(f"    ⚠️  OCR failed: {e}")
+                return ActionExecutionResult(
+                    success=success,
+                    method="ocr",
+                    coordinates=(x_screen, y_screen),
+                    matched_text=element.text,
+                    confidence=element.confidence,
+                )
+        except Exception:
+            pass
 
         try:
             all_text = ocr_tool.extract_all_text(ocr_screenshot)
@@ -746,20 +845,20 @@ Think step-by-step:
             best_score = -999
 
             for item in all_text:
-                text_lower = item["text"].lower().strip()
+                text_lower = item.text.lower().strip()
 
                 if text_lower == target_lower:
-                    score = 1000 + item["confidence"] * 100
+                    score = 1000 + item.confidence * 100
                 elif text_lower.startswith(target_lower):
-                    score = 700 + item["confidence"] * 100
+                    score = 700 + item.confidence * 100
                 elif target_lower in text_lower:
                     score = (
                         400
                         - (len(text_lower) - len(target_lower))
-                        + item["confidence"] * 100
+                        + item.confidence * 100
                     )
                 elif target_lower.startswith(text_lower) and len(text_lower) >= 3:
-                    score = 300 + item["confidence"] * 100
+                    score = 300 + item.confidence * 100
                 else:
                     continue
 
@@ -768,62 +867,76 @@ Think step-by-step:
                     best_score = score
 
             if best_match:
-                x_raw, y_raw = best_match["center"]
+                x_raw, y_raw = best_match.center
                 x_screen = int(x_raw / scaling) + x_offset
                 y_screen = int(y_raw / scaling) + y_offset
 
                 print(
-                    f"    ✅ Matched '{best_match['text']}' at ({x_screen}, {y_screen})"
+                    f"    ✅ Matched '{best_match.text}' (score: {best_score:.0f}) at ({x_screen}, {y_screen})"
                 )
 
                 input_tool = self.tool_registry.get_tool("input")
                 success = input_tool.click(x_screen, y_screen, validate=True)
-                return {
-                    "success": success,
-                    "method": "ocr",
-                    "coordinates": (x_screen, y_screen),
-                    "matched_text": best_match["text"],
-                    "confidence": best_match["confidence"],
-                }
+                return ActionExecutionResult(
+                    success=success,
+                    method="ocr",
+                    coordinates=(x_screen, y_screen),
+                    matched_text=best_match.text,
+                    confidence=best_match.confidence,
+                )
+            else:
+                print(
+                    f"    ⚠️  No fuzzy match found for '{target}' in {len(all_text)} extracted texts"
+                )
         except Exception as e:
             print(f"    ⚠️  Fuzzy search failed: {e}")
 
-        return {
-            "success": False,
-            "method": "ocr",
-            "error": f"Could not locate: {target}",
-            "coordinates": None,
-        }
+        return ActionExecutionResult(
+            success=False,
+            method="ocr",
+            error=f"Could not locate: {target}",
+            coordinates=None,
+        )
 
-    async def _type_text(self, text: Optional[str]) -> Dict[str, Any]:
+    async def _type_text(self, text: Optional[str]) -> ActionExecutionResult:
         """
         Type text at current cursor position.
         Supports special characters like '\n' for Enter/Return key.
+
+        Args:
+            text: Text to type
+
+        Returns:
+            ActionExecutionResult with typing details
         """
         if not text:
-            return {"success": False, "method": "type", "error": "No text provided"}
+            return ActionExecutionResult(
+                success=False, method="type", error="No text provided"
+            )
 
         input_tool = self.tool_registry.get_tool("input")
         try:
             if text == "\\n" or text == "\n":
-                print(f"    ⌨️  Pressing Enter/Return key")
+                print("    ⌨️  Pressing Enter/Return key")
                 import pyautogui
 
                 pyautogui.press("return")
             else:
                 print(f"    ⌨️  Typing: '{text}'")
                 input_tool.type_text(text)
-            return {
-                "success": True,
-                "method": "type",
-                "typed_text": text,
-            }
+            return ActionExecutionResult(success=True, method="type", typed_text=text)
         except Exception as e:
-            return {"success": False, "method": "type", "error": str(e)}
+            return ActionExecutionResult(success=False, method="type", error=str(e))
 
-    async def _scroll(self, direction: str = "down") -> Dict[str, Any]:
+    async def _scroll(self, direction: str = "down") -> ActionExecutionResult:
         """
         Scroll the screen in specified direction.
+
+        Args:
+            direction: Direction to scroll ('up' or 'down')
+
+        Returns:
+            ActionExecutionResult with scroll details
         """
         try:
             input_tool = self.tool_registry.get_tool("input")
@@ -834,19 +947,24 @@ Think step-by-step:
             else:
                 input_tool.scroll(amount)
 
-            return {
-                "success": True,
-                "method": "scroll",
-                "data": {"direction": direction},
-            }
+            return ActionExecutionResult(
+                success=True, method="scroll", data={"direction": direction}
+            )
         except Exception as e:
-            return {"success": False, "method": "scroll", "error": str(e)}
+            return ActionExecutionResult(success=False, method="scroll", error=str(e))
 
     async def _double_click_element(
         self, target: str, screenshot: Image.Image
-    ) -> Dict[str, Any]:
+    ) -> ActionExecutionResult:
         """
         Double-click element using OCR or accessibility coordinates.
+
+        Args:
+            target: Element to double-click
+            screenshot: Current screenshot
+
+        Returns:
+            ActionExecutionResult with double-click details
         """
         # Try to find element first
         result = await self._click_element(target, screenshot)
@@ -860,9 +978,16 @@ Think step-by-step:
 
     async def _right_click_element(
         self, target: str, screenshot: Image.Image
-    ) -> Dict[str, Any]:
+    ) -> ActionExecutionResult:
         """
         Right-click element using OCR or accessibility coordinates.
+
+        Args:
+            target: Element to right-click
+            screenshot: Current screenshot
+
+        Returns:
+            ActionExecutionResult with right-click details
         """
         # Try to find element first
         result = await self._click_element(target, screenshot)
@@ -876,20 +1001,27 @@ Think step-by-step:
 
     async def _read_screen(
         self, target: str, screenshot: Image.Image
-    ) -> Dict[str, Any]:
+    ) -> ActionExecutionResult:
         """
         Read information from screen using OCR.
+
+        Args:
+            target: Target area to read
+            screenshot: Current screenshot
+
+        Returns:
+            ActionExecutionResult with extracted text
         """
         ocr_tool = self.tool_registry.get_tool("ocr")
 
         try:
             text_results = ocr_tool.extract_all_text(screenshot)
-            full_text = "\n".join([item["text"] for item in text_results])
+            full_text = "\n".join([item.text for item in text_results])
 
-            return {
-                "success": True,
-                "method": "ocr",
-                "data": {"text": full_text[:500]},  # Return first 500 chars
-            }
+            return ActionExecutionResult(
+                success=True,
+                method="ocr",
+                data={"text": full_text[:500]},  # Return first 500 chars
+            )
         except Exception as e:
-            return {"success": False, "method": "ocr", "error": str(e)}
+            return ActionExecutionResult(success=False, method="ocr", error=str(e))

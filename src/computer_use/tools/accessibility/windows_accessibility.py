@@ -152,6 +152,30 @@ class WindowsAccessibility:
 
         return elements
 
+    def is_app_running(self, app_name: str) -> bool:
+        """
+        Check if an application is currently running.
+
+        Args:
+            app_name: Application name to check
+
+        Returns:
+            True if app is running, False otherwise
+        """
+        if not self.available:
+            return False
+
+        try:
+            desktop = self.Desktop(backend="uia")
+            windows = [
+                w
+                for w in desktop.windows()
+                if app_name.lower() in w.window_text().lower()
+            ]
+            return len(windows) > 0
+        except Exception:
+            return False
+
     def get_app_window_bounds(self, app_name: Optional[str] = None) -> Optional[tuple]:
         """
         Get the bounds of the app's main window for OCR cropping.

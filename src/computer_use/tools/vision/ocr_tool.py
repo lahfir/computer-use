@@ -4,33 +4,41 @@ OCR tool for text detection with precise coordinates.
 
 from typing import List, Optional, Tuple
 from PIL import Image
-import numpy as np
+from .ocr_factory import create_ocr_engine, get_all_available_ocr_engines
+from .ocr_protocol import OCREngine
+from ...schemas.ocr_result import OCRResult
 
 
 class OCRTool:
     """
     Text detection with precise bounding box coordinates.
-    Uses EasyOCR for accurate text recognition.
+    Uses platform-optimized OCR engines with automatic fallback.
     """
 
-    def __init__(self):
+    def __init__(self, use_gpu: Optional[bool] = None):
         """
-        Initialize OCR tool with EasyOCR reader.
-        """
-        self.reader = None
-        self._initialize_reader()
+        Initialize OCR tool with optimal engine for platform.
 
-    def _initialize_reader(self):
+        Args:
+            use_gpu: Whether to use GPU. If None, auto-detect.
         """
-        Lazy initialization of EasyOCR reader.
-        """
-        try:
-            import easyocr
+        self.engine: Optional[OCREngine] = None
+        self.fallback_engines: List[OCREngine] = []
+        self._initialize_engine(use_gpu)
 
-            self.reader = easyocr.Reader(["en"], gpu=False)
-        except ImportError:
-            print("EasyOCR not available. Install with: pip install easyocr")
-            self.reader = None
+    def _initialize_engine(self, use_gpu: Optional[bool]) -> None:
+        """
+        Initialize platform-optimized OCR engine and fallbacks.
+
+        Args:
+            use_gpu: Whether to use GPU
+        """
+        self.engine = create_ocr_engine(use_gpu=use_gpu)
+        if not self.engine:
+            print("⚠️  No OCR engine available")
+
+        # Get all available engines for fallback
+        self.fallback_engines = get_all_available_ocr_engines(use_gpu=use_gpu)
 
     def find_text(
         self,
@@ -38,9 +46,10 @@ class OCRTool:
         target_text: str,
         region: Optional[Tuple[int, int, int, int]] = None,
         fuzzy: bool = True,
-    ) -> List[dict]:
+    ) -> List[OCRResult]:
         """
         Find text in screenshot and return exact bounding boxes.
+        Automatically tries fallback engines if primary fails.
 
         Args:
             screenshot: PIL Image to search
@@ -49,107 +58,111 @@ class OCRTool:
             fuzzy: Whether to allow partial matches
 
         Returns:
-            List of dictionaries with text and bounding boxes
+            List of OCRResult objects with text and bounding boxes
         """
-        if self.reader is None:
+        if not self.fallback_engines:
             return []
 
-        if region:
-            x, y, w, h = region
-            screenshot = screenshot.crop((x, y, x + w, y + h))
-            offset_x, offset_y = x, y
-        else:
-            offset_x, offset_y = 0, 0
+        from ...utils.ui import console
 
-        img_array = np.array(screenshot)
+        for idx, engine in enumerate(self.fallback_engines):
+            engine_name = engine.__class__.__name__.replace("Engine", "").replace(
+                "OCR", ""
+            )
 
-        try:
-            results = self.reader.readtext(img_array)
-        except Exception as e:
-            print(f"OCR error: {e}")
-            return []
+            try:
+                with console.status(
+                    f"      [{engine_name}] Processing...", spinner="dots"
+                ):
+                    results = engine.recognize_text(screenshot, region=region)
 
-        matches = []
-        target_lower = target_text.lower()
+                if not results or len(results) == 0:
+                    console.print(
+                        f"      [{engine_name}] No text found, trying next engine"
+                    )
+                    continue
 
-        for bbox, text, confidence in results:
-            text_lower = text.lower()
-
-            if fuzzy:
-                if len(text_lower) < 3:
-                    is_match = text_lower == target_lower
-                else:
-                    is_match = target_lower in text_lower or text_lower in target_lower
-            else:
-                is_match = text_lower == target_lower
-
-            if is_match and confidence > 0.5:
-                top_left = bbox[0]
-                bottom_right = bbox[2]
-
-                x = int(top_left[0]) + offset_x
-                y = int(top_left[1]) + offset_y
-                width = int(bottom_right[0] - top_left[0])
-                height = int(bottom_right[1] - top_left[1])
-
-                center_x = x + width // 2
-                center_y = y + height // 2
-
-                matches.append(
-                    {
-                        "text": text,
-                        "bounds": (x, y, width, height),
-                        "center": (center_x, center_y),
-                        "confidence": confidence,
-                        "detection_method": "ocr",
-                    }
+                console.print(
+                    f"      [{engine_name}] Found {len(results)} text items, matching..."
                 )
+                matches = []
+                target_lower = target_text.lower()
 
-        return matches
+                for result in results:
+                    text = result.text
+                    text_lower = text.lower()
+                    confidence = result.confidence
 
-    def extract_all_text(self, screenshot: Image.Image) -> List[dict]:
+                    if fuzzy:
+                        if len(text_lower) < 3:
+                            is_match = text_lower == target_lower
+                        else:
+                            is_match = (
+                                target_lower in text_lower or text_lower in target_lower
+                            )
+                    else:
+                        is_match = text_lower == target_lower
+
+                    if is_match and confidence > 0.5:
+                        matches.append(
+                            OCRResult(
+                                text=text,
+                                bounds=result.bounds,
+                                center=result.center,
+                                confidence=confidence,
+                                detection_method="ocr",
+                            )
+                        )
+
+                if matches:
+                    console.print(f"      [{engine_name}] Matched '{matches[0].text}'")
+                    return matches
+                else:
+                    console.print(
+                        f"      [{engine_name}] Text found but no match for '{target_text}', trying next"
+                    )
+
+            except Exception as e:
+                console.print(
+                    f"      [{engine_name}] Error: {str(e)[:50]}, trying next"
+                )
+                continue
+
+        console.print(f"      [OCR] All engines exhausted, no match found")
+        return []
+
+    def extract_all_text(self, screenshot: Image.Image) -> List[OCRResult]:
         """
         Extract all text from screenshot with coordinates.
+        Automatically tries fallback engines if primary fails.
 
         Args:
             screenshot: PIL Image to analyze
 
         Returns:
-            List of all detected text with coordinates
+            List of all detected OCRResult objects with coordinates
         """
-        if self.reader is None:
+        if not self.fallback_engines:
             return []
 
-        img_array = np.array(screenshot)
+        # Try each engine in priority order until we get results
+        for idx, engine in enumerate(self.fallback_engines):
+            engine_name = engine.__class__.__name__.replace("Engine", "").replace(
+                "OCR", ""
+            )
 
-        try:
-            results = self.reader.readtext(img_array)
-        except Exception as e:
-            print(f"OCR error: {e}")
-            return []
+            try:
+                results = engine.recognize_text(screenshot, region=None)
 
-        extracted = []
+                if not results or len(results) == 0:
+                    continue
 
-        for bbox, text, confidence in results:
-            if confidence > 0.3:
-                top_left = bbox[0]
-                bottom_right = bbox[2]
+                extracted = [result for result in results if result.confidence > 0.3]
 
-                x = int(top_left[0])
-                y = int(top_left[1])
-                width = int(bottom_right[0] - top_left[0])
-                height = int(bottom_right[1] - top_left[1])
+                if extracted:
+                    return extracted
 
-                center_x = x + width // 2
-                center_y = y + height // 2
+            except Exception:
+                continue
 
-                extracted.append(
-                    {
-                        "text": text,
-                        "bounds": (x, y, width, height),
-                        "center": (center_x, center_y),
-                        "confidence": confidence,
-                    }
-                )
-
-        return extracted
+        return []

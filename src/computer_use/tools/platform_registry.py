@@ -2,7 +2,7 @@
 Platform-aware tool registry for dynamic tool serving.
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Union
 from .screenshot_tool import ScreenshotTool
 from .input_tool import InputTool
 from .process_tool import ProcessTool
@@ -15,6 +15,25 @@ from .vision.ocr_tool import OCRTool
 from .vision.template_matcher import TemplateMatcher
 from .vision.element_detector import ElementDetector
 from .fallback.vision_coordinates import VisionCoordinateTool
+from ..schemas.tool_types import CapabilitiesSummary
+from ..utils.platform_detector import PlatformCapabilities
+from ..utils.safety_checker import SafetyChecker
+from ..utils.coordinate_validator import CoordinateValidator
+
+ToolType = Union[
+    ScreenshotTool,
+    InputTool,
+    ProcessTool,
+    FileTool,
+    BrowserTool,
+    MacOSAccessibility,
+    WindowsAccessibility,
+    LinuxAccessibility,
+    OCRTool,
+    TemplateMatcher,
+    ElementDetector,
+    VisionCoordinateTool,
+]
 
 
 class PlatformToolRegistry:
@@ -24,11 +43,11 @@ class PlatformToolRegistry:
 
     def __init__(
         self,
-        capabilities,
-        safety_checker=None,
-        coordinate_validator=None,
-        llm_client=None,
-    ):
+        capabilities: PlatformCapabilities,
+        safety_checker: Optional[SafetyChecker] = None,
+        coordinate_validator: Optional[CoordinateValidator] = None,
+        llm_client: Optional[Any] = None,
+    ) -> None:
         """
         Initialize tool registry with platform capabilities.
 
@@ -38,20 +57,20 @@ class PlatformToolRegistry:
             coordinate_validator: Optional CoordinateValidator instance
             llm_client: Optional LLM client for browser agent
         """
-        self.capabilities = capabilities
-        self.safety_checker = safety_checker
-        self.coordinate_validator = coordinate_validator
-        self.llm_client = llm_client
-        self.tools = self._initialize_tools()
+        self.capabilities: PlatformCapabilities = capabilities
+        self.safety_checker: Optional[SafetyChecker] = safety_checker
+        self.coordinate_validator: Optional[CoordinateValidator] = coordinate_validator
+        self.llm_client: Optional[Any] = llm_client
+        self.tools: Dict[str, ToolType] = self._initialize_tools()
 
-    def _initialize_tools(self) -> Dict[str, Any]:
+    def _initialize_tools(self) -> Dict[str, ToolType]:
         """
         Load appropriate tools for current platform.
 
         Returns:
             Dictionary of initialized tools
         """
-        tools = {}
+        tools: Dict[str, ToolType] = {}
 
         if self.capabilities.accessibility_api_available:
             if self.capabilities.os_type == "macos":
@@ -61,9 +80,15 @@ class PlatformToolRegistry:
             elif self.capabilities.os_type == "linux":
                 tools["accessibility"] = LinuxAccessibility()
 
-        tools["ocr"] = OCRTool()
+        use_gpu = (
+            self.capabilities.gpu_available
+            if hasattr(self.capabilities, "gpu_available")
+            else None
+        )
+        ocr_tool = OCRTool(use_gpu=use_gpu)
+        tools["ocr"] = ocr_tool
         tools["template_matcher"] = TemplateMatcher()
-        tools["element_detector"] = ElementDetector()
+        tools["element_detector"] = ElementDetector(ocr_tool=ocr_tool)
 
         tools["vision_coordinates"] = VisionCoordinateTool()
 
@@ -75,14 +100,14 @@ class PlatformToolRegistry:
 
         return tools
 
-    def get_gui_tools(self) -> List[Any]:
+    def get_gui_tools(self) -> List[ToolType]:
         """
         Get GUI automation tools in priority order.
 
         Returns:
             List of tools ordered by accuracy (highest first)
         """
-        ordered_tools = []
+        ordered_tools: List[ToolType] = []
 
         if "accessibility" in self.tools:
             ordered_tools.append(self.tools["accessibility"])
@@ -97,7 +122,7 @@ class PlatformToolRegistry:
 
         return ordered_tools
 
-    def get_tool(self, tool_name: str) -> Any:
+    def get_tool(self, tool_name: str) -> Optional[ToolType]:
         """
         Get a specific tool by name.
 
@@ -118,20 +143,22 @@ class PlatformToolRegistry:
         """
         return list(self.tools.keys())
 
-    def get_capabilities_summary(self) -> Dict[str, Any]:
+    def get_capabilities_summary(self) -> CapabilitiesSummary:
         """
         Get summary of platform capabilities and available tools.
 
         Returns:
-            Dictionary with capability information
+            CapabilitiesSummary with capability information
         """
-        return {
-            "os_type": self.capabilities.os_type,
-            "os_version": self.capabilities.os_version,
-            "accessibility_api": self.capabilities.accessibility_api_type,
-            "screen_resolution": self.capabilities.screen_resolution,
-            "available_tools": self.list_available_tools(),
-            "tier1_available": "accessibility" in self.tools,
-            "tier2_available": True,
-            "tier3_available": True,
-        }
+        return CapabilitiesSummary(
+            os_type=self.capabilities.os_type,
+            os_version=self.capabilities.os_version,
+            accessibility_api=self.capabilities.accessibility_api_type,
+            screen_resolution=self.capabilities.screen_resolution,
+            gpu_available=getattr(self.capabilities, "gpu_available", False),
+            gpu_type=getattr(self.capabilities, "gpu_type", None),
+            available_tools=self.list_available_tools(),
+            tier1_available="accessibility" in self.tools,
+            tier2_available=True,
+            tier3_available=True,
+        )

@@ -2,10 +2,11 @@
 Element detector combining semantic guidance with CV/OCR.
 """
 
-from typing import Optional
+from typing import Optional, Dict, Any, List, Tuple
 from PIL import Image
 from .ocr_tool import OCRTool
 from .template_matcher import TemplateMatcher
+from ...schemas.element_result import DetectedElement
 
 
 class ElementDetector:
@@ -14,20 +15,23 @@ class ElementDetector:
     Uses vision model guidance to direct CV/OCR tools.
     """
 
-    def __init__(self):
+    def __init__(self, ocr_tool: Optional[OCRTool] = None):
         """
         Initialize element detector.
+
+        Args:
+            ocr_tool: Optional pre-initialized OCRTool to avoid double initialization
         """
-        self.ocr_tool = OCRTool()
+        self.ocr_tool = ocr_tool if ocr_tool is not None else OCRTool()
         self.template_matcher = TemplateMatcher()
 
     async def locate_element(
         self,
         screenshot: Image.Image,
-        semantic_target: dict,
+        semantic_target: Dict[str, Any],
         ocr_tool: Optional[OCRTool] = None,
         template_matcher: Optional[TemplateMatcher] = None,
-    ) -> Optional[dict]:
+    ) -> Optional[DetectedElement]:
         """
         Locate an element using semantic description + CV/OCR.
 
@@ -38,7 +42,7 @@ class ElementDetector:
             template_matcher: Template matcher instance (optional)
 
         Returns:
-            Element dictionary with coordinates or None
+            DetectedElement with coordinates or None
         """
         ocr = ocr_tool or self.ocr_tool
         matcher = template_matcher or self.template_matcher
@@ -48,18 +52,18 @@ class ElementDetector:
             results = ocr.find_text(screenshot, text_content, fuzzy=True)
 
             if results:
-                best_match = max(results, key=lambda r: r["confidence"])
+                best_match = max(results, key=lambda r: r.confidence)
 
-                if best_match["confidence"] > 0.6:
-                    return {
-                        "element_type": "text",
-                        "label": best_match["text"],
-                        "role": None,
-                        "bounds": best_match["bounds"],
-                        "center": best_match["center"],
-                        "confidence": best_match["confidence"],
-                        "detection_method": "ocr",
-                    }
+                if best_match.confidence > 0.6:
+                    return DetectedElement(
+                        element_type="text",
+                        label=best_match.text,
+                        role=None,
+                        bounds=best_match.bounds,
+                        center=best_match.center,
+                        confidence=best_match.confidence,
+                        detection_method="ocr",
+                    )
 
         color_hint = semantic_target.get("color_hint")
         if color_hint:
@@ -71,19 +75,21 @@ class ElementDetector:
                 if elements:
                     best = max(elements, key=lambda e: e["confidence"])
 
-                    return {
-                        "element_type": "visual",
-                        "label": None,
-                        "role": None,
-                        "bounds": best["bounds"],
-                        "center": best["center"],
-                        "confidence": best["confidence"],
-                        "detection_method": "cv",
-                    }
+                    return DetectedElement(
+                        element_type="visual",
+                        label=None,
+                        role=None,
+                        bounds=best["bounds"],
+                        center=best["center"],
+                        confidence=best["confidence"],
+                        detection_method="cv",
+                    )
 
         return None
 
-    def _parse_color_hint(self, color_hint: str) -> list:
+    def _parse_color_hint(
+        self, color_hint: str
+    ) -> List[Tuple[Tuple[int, int, int], Tuple[int, int, int]]]:
         """
         Parse color hint string into HSV ranges.
 

@@ -3,8 +3,7 @@ Coordinator agent for task analysis and delegation.
 Uses LLM with structured outputs for intelligent task classification.
 """
 
-from typing import Dict, Any
-from ..schemas.task_analysis import TaskAnalysis, TaskType
+from ..schemas.task_analysis import TaskAnalysis
 
 
 class CoordinatorAgent:

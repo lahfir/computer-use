@@ -2,7 +2,6 @@
 Platform-specific helper utilities.
 """
 
-import os
 import platform
 import subprocess
 from typing import List, Dict, Optional

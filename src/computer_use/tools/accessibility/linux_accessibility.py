@@ -260,6 +260,25 @@ class LinuxAccessibility:
 
         return elements
 
+    def is_app_running(self, app_name: str) -> bool:
+        """
+        Check if an application is currently running.
+
+        Args:
+            app_name: Application name to check
+
+        Returns:
+            True if app is running, False otherwise
+        """
+        if not self.available:
+            return False
+
+        try:
+            app = self._get_app(app_name)
+            return app is not None
+        except Exception:
+            return False
+
     def _get_app(self, app_name: Optional[str] = None):
         """Get application reference by name or active app."""
         try:
