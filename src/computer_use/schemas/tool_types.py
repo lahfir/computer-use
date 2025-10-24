@@ -4,6 +4,7 @@ Type definitions for tools and their return values.
 
 from typing import TypedDict, Optional, Any, Tuple, Protocol, List
 from PIL import Image
+from pydantic import BaseModel, Field
 
 
 class ClickResult(TypedDict, total=False):
@@ -62,19 +63,29 @@ class OpenAppResult(TypedDict, total=False):
     error: Optional[str]
 
 
-class ActionExecutionResult(TypedDict, total=False):
+class ActionExecutionResult(BaseModel):
     """
     Generic result from action execution.
+    Now a proper Pydantic model for type safety.
     """
 
-    success: bool
-    method: str
-    coordinates: Optional[Tuple[int, int]]
-    matched_text: Optional[str]
-    confidence: Optional[float]
-    data: Optional[dict]
-    error: Optional[str]
-    typed_text: Optional[str]
+    success: bool = Field(description="Whether action succeeded")
+    method: Optional[str] = Field(default=None, description="Method used for execution")
+    coordinates: Optional[Tuple[int, int]] = Field(
+        default=None, description="Coordinates used (if applicable)"
+    )
+    matched_text: Optional[str] = Field(
+        default=None, description="Text that was matched (OCR)"
+    )
+    confidence: Optional[float] = Field(default=None, description="Confidence score")
+    data: Optional[dict] = Field(default=None, description="Additional result data")
+    error: Optional[str] = Field(default=None, description="Error message if failed")
+    typed_text: Optional[str] = Field(
+        default=None, description="Text that was typed (for type actions)"
+    )
+    action_taken: Optional[str] = Field(
+        default=None, description="Description of action taken"
+    )
 
 
 class CapabilitiesSummary(TypedDict):

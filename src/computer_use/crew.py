@@ -193,6 +193,7 @@ class ComputerUseCrew:
                 decision.subtask, context=context
             )
 
+            # Store lightweight summary in context (NO handoff - that's handled immediately below)
             agent_result = AgentResult(
                 agent=decision.agent,
                 subtask=decision.subtask,
@@ -203,8 +204,14 @@ class ComputerUseCrew:
             context.agent_results.append(agent_result)
 
             if not result.success:
-                console.print(f"   [red]✗ {result.error}[/red]")
-                break
+                if result.handoff_requested and result.suggested_agent:
+                    console.print(
+                        f"   [yellow]⚠️  Agent failed, requesting handoff to {result.suggested_agent.upper()}[/yellow]"
+                    )
+                    console.print(f"   [dim]Reason: {result.handoff_reason}[/dim]")
+                else:
+                    console.print(f"   [red]✗ {result.error}[/red]")
+                    break
 
         return WorkflowResult(
             success=context.completed,

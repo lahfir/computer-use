@@ -71,22 +71,29 @@ AVAILABLE AGENTS & THEIR CAPABILITIES:
   • WHEN: Need pure file system operations without UI
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-CRITICAL INTELLIGENCE RULES:
-1. **READ THE CONTEXT**: Previous agents have done work - BUILD ON IT, don't repeat!
-2. **FILE LOCATIONS**: Browser creates files in TEMP folders (/var/folders/...) - shown in context
-3. **COMPLETE TASKS**: Give agents FULL instructions with ALL the data
-   - BAD: "Review file and add to app"
-   - GOOD: "Open notes app and add this data: [actual 10 gift ideas with links]"
-4. **USE ACTUAL DATA**: Extract and include real content from previous steps
-5. **SMART AGENT CHOICE**: 
-   - User says "app/application name" → GUI agent (it will find and open it)
-   - Need web info → Browser agent
-   - Need file operations only → System agent
-6. **HANDOFFS**: 
-   - Browser → GUI: Pass the actual data/content, not just file paths
-   - GUI failed? → System agent might do it via CLI
-   - System failed? → GUI agent might do it via UI
-7. **COMPLETION**: Only set is_complete=True when ORIGINAL TASK is 100% done
+       CRITICAL INTELLIGENCE RULES:
+       1. **READ THE CONTEXT**: Previous agents have done work - BUILD ON IT, don't repeat!
+       2. **FILE LOCATIONS**: Browser creates files in TEMP folders (/var/folders/...) - shown in context
+       3. **COMPLETE TASKS**: Give agents FULL instructions with ALL the data
+          - BAD: "Review file and add to app"
+          - GOOD: "Open notes app and add this data: [actual 10 gift ideas with links]"
+       4. **USE ACTUAL DATA**: Extract and include real content from previous steps
+       5. **SMART AGENT CHOICE**: 
+          - User says "app/application name" → GUI agent (it will find and open it)
+          - Need web info → Browser agent
+          - Need file operations only → System agent
+       6. **SMART HANDOFFS**: 
+          - Last agent FAILED? Check if it was stuck/loop → try a DIFFERENT approach
+          - Browser → GUI: Pass the actual data/content, not just file paths
+          - GUI stuck/failed? → Try System agent with CLI commands
+          - System failed? → Try GUI agent with UI interaction
+          - If agent failed with "couldn't find X" → DON'T repeat same approach!
+          - HANDOFF = SMART RETRY with a DIFFERENT method, NOT just pass to same agent again!
+       7. **FAILURE ANALYSIS**: 
+          - If last step shows ❌ Error → understand WHY it failed
+          - Don't give the SAME task to the SAME agent that just failed
+          - Adapt the approach based on the error message
+       8. **COMPLETION**: Only set is_complete=True when ORIGINAL TASK is 100% done
 
 PLATFORM: {self.capabilities.os_type}
 ACCESSIBILITY: {"Available" if self.capabilities.accessibility_api_available else "Not available"}
@@ -115,44 +122,32 @@ THINK: What's the SMARTEST next step to complete the original task?
         parts = []
         for i, result in enumerate(context.agent_results, 1):
             status = "✓" if result.success else "✗"
-            
-            # Build detailed result info
-            result_info = f"Step {i}: {status} {result.agent.upper()} - {result.subtask}\n"
-            
+
+            result_info = (
+                f"Step {i}: {status} {result.agent.upper()} - {result.subtask}\n"
+            )
+
             if result.success and result.data:
-                # Extract useful information from data
                 data = result.data
-                
-                # Files
-                if data.get("files"):
-                    result_info += f"  📁 Files: {', '.join(data['files'])}\n"
-                
-                # Output/content
-                if data.get("output"):
-                    output = data["output"]
-                    if isinstance(output, str):
-                        # Show first 500 chars
-                        preview = output[:500] + "..." if len(output) > 500 else output
-                        result_info += f"  📄 Output: {preview}\n"
-                    elif isinstance(output, dict):
-                        # Show dict content
-                        for key, value in output.items():
-                            if isinstance(value, str) and len(value) < 300:
-                                result_info += f"  {key}: {value}\n"
-                
-                # Final output (for GUI tasks)
-                if data.get("final_output"):
-                    result_info += f"  ✅ Result: {data['final_output']}\n"
-                
-                # Any other useful keys
-                for key in ["text", "content", "message", "result"]:
-                    if key in data and isinstance(data[key], str):
-                        preview = data[key][:300] + "..." if len(data[key]) > 300 else data[key]
-                        result_info += f"  {key}: {preview}\n"
-                        
+
+                files = data.files
+                if files:
+                    result_info += f"  📁 Files: {', '.join(files)}\n"
+
+                output = data.output
+                if output:
+                    result_info += f"  📄 Output: {output}\n"
+
+                final_output = data.final_output
+                if final_output:
+                    result_info += f"  ✅ Result: {final_output}\n"
+
+                steps = data.steps
+                if steps:
+                    result_info += f"  📊 Steps: {steps}\n"
+
             elif not result.success:
                 result_info += f"  ❌ Error: {result.error}\n"
-            
             parts.append(result_info)
 
         return "\n".join(parts)

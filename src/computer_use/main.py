@@ -13,7 +13,9 @@ from .utils.task_stop_handler import TaskStopHandler
 from .utils.ui import (
     print_task_result,
     print_platform_info,
+    print_section_header,
     console,
+    print_info,
 )
 from .crew import ComputerUseCrew
 
@@ -31,23 +33,23 @@ async def main():
         console.print("[yellow]Exiting due to missing permissions.[/yellow]")
         sys.exit(1)
 
-    console.print("\n[bold blue]🔍 Platform Detection[/bold blue]")
+    print_section_header("Platform Detection")
     console.print()
     capabilities = detect_platform()
     print_platform_info(capabilities)
 
-    console.print("\n[bold blue]🚀 Initializing Systems[/bold blue]")
+    print_section_header("Initializing Systems")
     console.print()
-    console.print("[cyan]• Safety Checker[/cyan]")
+    print_info("Safety Checker")
     safety_checker = SafetyChecker()
 
-    console.print("[cyan]• Command Confirmation System[/cyan]")
+    print_info("Command Confirmation System")
     confirmation_manager = CommandConfirmation()
 
-    console.print("[cyan]• Task Stop Handler (ESC support)[/cyan]")
+    print_info("Task Stop Handler (ESC support)")
     stop_handler = TaskStopHandler()
 
-    console.print("[cyan]• AI Agents & Tool Registry[/cyan]")
+    print_info("AI Agents & Tool Registry")
     crew = ComputerUseCrew(
         capabilities,
         safety_checker,

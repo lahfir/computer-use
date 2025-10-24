@@ -5,7 +5,12 @@ GUI agent with screenshot-driven loop (like Browser-Use).
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 from PIL import Image
 from enum import Enum
-from ..schemas.actions import ActionResult
+from ..schemas.actions import (
+    ActionResult,
+    GUIResultData,
+    HandoffContext,
+    GUIActionHistoryEntry,
+)
 from ..schemas.tool_types import ActionExecutionResult
 from ..utils.ui import (
     print_failure,
@@ -14,6 +19,7 @@ from ..utils.ui import (
 )
 from pydantic import BaseModel, Field
 import asyncio
+
 
 if TYPE_CHECKING:
     from ..tools.platform_registry import PlatformToolRegistry
@@ -87,7 +93,7 @@ class GUIAgent:
         self.llm_client: Optional["BaseChatModel"] = llm_client
         self.max_steps: int = 15
         self.current_app: Optional[str] = None
-        self.action_history: List[Dict[str, Any]] = []
+        self.action_history: List[GUIActionHistoryEntry] = []
         self.context: "WorkflowContext | None" = None
 
     async def execute_task(
@@ -161,7 +167,7 @@ class GUIAgent:
 
             if len(self.action_history) >= 4:
                 recent = self.action_history[-4:]
-                targets = [h["target"] for h in recent]
+                targets = [h.target for h in recent]
 
                 if len(set(targets)) == 2:
                     is_alternating = all(
@@ -180,11 +186,11 @@ class GUIAgent:
                             handoff_requested=True,
                             suggested_agent="system",
                             handoff_reason="GUI stuck in loop, System agent might handle better",
-                            handoff_context={
-                                "original_task": task,
-                                "loop_pattern": targets,
-                                "current_app": self.current_app,
-                            },
+                            handoff_context=HandoffContext(
+                                original_task=task,
+                                loop_pattern=targets,
+                                current_app=self.current_app,
+                            ),
                         )
 
             if (
@@ -194,13 +200,21 @@ class GUIAgent:
             ):
                 repeated_actions += 1
                 if repeated_actions >= 2:
-                    print_warning("Repeated same action 3 times - stopping!")
+                    print_warning("Repeated same action 3 times - requesting handoff!")
                     return ActionResult(
                         success=False,
                         action_taken=f"Stuck in loop: {action.action.value} → {action.target}",
                         method_used="loop_detection",
                         confidence=0.0,
                         error="Repeated same action 3 times",
+                        handoff_requested=True,
+                        suggested_agent="system",
+                        handoff_reason="GUI stuck repeating same action, system agent might handle via CLI",
+                        handoff_context=HandoffContext(
+                            original_task=task,
+                            repeated_action=action.model_dump(),
+                            current_app=self.current_app,
+                        ),
                     )
             else:
                 repeated_actions = 0
@@ -208,17 +222,18 @@ class GUIAgent:
             step_result = await self._execute_action(action, screenshot)
 
             self.action_history.append(
-                {
-                    "step": step,
-                    "action": action.action.value,
-                    "target": action.target,
-                    "success": step_result.get("success"),
-                    "reasoning": action.reasoning,
-                }
+                GUIActionHistoryEntry(
+                    step=step,
+                    action=action.action.value,
+                    target=action.target,
+                    success=step_result.success,
+                    reasoning=action.reasoning,
+                    method=step_result.method,
+                )
             )
 
-            if not step_result.get("success"):
-                print_failure(f"Failed: {step_result.get('error')}")
+            if not step_result.success:
+                print_failure(f"Failed: {step_result.error}")
                 consecutive_failures += 1
 
                 if consecutive_failures >= 2:
@@ -230,28 +245,26 @@ class GUIAgent:
                         action_taken=f"GUI agent struggled after {consecutive_failures} failures",
                         method_used="gui_handoff",
                         confidence=0.0,
-                        error=step_result.get("error"),
+                        error=step_result.error,
                         handoff_requested=True,
                         suggested_agent="system",
-                        handoff_reason=f"Could not complete GUI action: {step_result.get('error')}",
-                        handoff_context={
-                            "original_task": task,
-                            "failed_action": (
-                                action.action.value if action else "unknown"
-                            ),
-                            "failed_target": action.target if action else "unknown",
-                            "current_app": self.current_app,
-                            "steps_completed": step,
-                            "last_successful_action": (
+                        handoff_reason=f"Could not complete GUI action: {step_result.error}",
+                        handoff_context=HandoffContext(
+                            original_task=task,
+                            failed_action=action.action.value if action else "unknown",
+                            failed_target=action.target if action else "unknown",
+                            current_app=self.current_app,
+                            steps_completed=step,
+                            last_successful_action=(
                                 last_action.action.value if last_action else None
                             ),
-                        },
+                        ),
                     )
             else:
                 consecutive_failures = 0
 
                 # Show method used and execution details
-                method = step_result.get("method", "unknown")
+                method = step_result.method or "unknown"
                 method_display = {
                     "accessibility": "[green]✓ Accessibility API[/green] (100% accurate)",
                     "process": "[green]✓ Process Manager[/green]",
@@ -262,7 +275,7 @@ class GUIAgent:
 
                 console.print(f"    {method_display}")
 
-                current_coords = step_result.get("coordinates")
+                current_coords = step_result.coordinates
                 if current_coords:
                     x, y = current_coords
                     console.print(f"    [dim]Position: ({x}, {y})[/dim]")
@@ -285,16 +298,15 @@ class GUIAgent:
 
                     last_coordinates = current_coords
 
-                # Show any additional data from execution
-                if step_result.get("data"):
-                    data_str = step_result.get("data")
-                    if isinstance(data_str, dict):
-                        if data_str.get("text"):
+                if step_result.data:
+                    data_obj = step_result.data
+                    if isinstance(data_obj, dict):
+                        if data_obj.get("text"):
                             console.print(
-                                f"    [dim]Text: {data_str['text'][:50]}...[/dim]"
+                                f"    [dim]Text: {data_obj['text'][:50]}...[/dim]"
                             )
-                    elif isinstance(data_str, str) and len(data_str) < 100:
-                        console.print(f"    [dim]Output: {data_str}[/dim]")
+                    elif isinstance(data_obj, str) and len(data_obj) < 100:
+                        console.print(f"    [dim]Output: {data_obj}[/dim]")
 
             last_action = action
             task_complete = action.is_complete
@@ -314,8 +326,8 @@ class GUIAgent:
             # Count methods used
             methods_used = set()
             for h in self.action_history:
-                if h.get("success"):
-                    methods_used.add(h.get("method", "gui"))
+                if h.success and h.method:
+                    methods_used.add(h.method)
             if methods_used:
                 methods_str = ", ".join(sorted(methods_used))
                 console.print(
@@ -328,11 +340,11 @@ class GUIAgent:
                 action_taken=f"Completed task in {step} steps",
                 method_used="screenshot_loop",
                 confidence=0.95,
-                data={
-                    "steps": step,
-                    "final_action": last_action.action.value if last_action else None,
-                    "task_complete": True,
-                },
+                data=GUIResultData(
+                    steps=step,
+                    final_action=last_action.action.value if last_action else None,
+                    task_complete=True,
+                ),
             )
         else:
             console.print()
@@ -358,7 +370,7 @@ class GUIAgent:
         step: int,
         last_action: Optional[GUIAction],
         accessibility_elements: List[Dict[str, Any]] = None,
-        action_history: List[Dict[str, Any]] = None,
+        action_history: Optional[List[GUIActionHistoryEntry]] = None,
     ) -> GUIAction:
         """
         Use vision LLM to analyze screenshot and decide next action.
@@ -382,8 +394,8 @@ class GUIAgent:
         if action_history and len(action_history) > 0:
             history_context = "\n\nHISTORY:\n"
             for h in action_history[-5:]:
-                status = "✅" if h.get("success") else "❌"
-                history_context += f"{status} {h['action']} → {h['target']}\n"
+                status = "✅" if h.success else "❌"
+                history_context += f"{status} {h.action} → {h.target}\n"
 
         accessibility_context = ""
         if accessibility_elements and len(accessibility_elements) > 0:
@@ -401,9 +413,7 @@ class GUIAgent:
                 success = "✅" if res.success else "❌"
                 previous_work_context += f"{success} {res.agent}: {res.subtask}\n"
 
-                # Include actual data content if available
                 if res.data and isinstance(res.data, dict):
-                    # If there's text/content, include it
                     if res.data.get("output"):
                         output = res.data["output"]
                         if isinstance(output, str):
@@ -552,12 +562,13 @@ What's the next action to make progress on the task?
 
         try:
             result = process_tool.open_application(app_name)
-            if result.get("success"):
+            success = (
+                result.get("success", False) if isinstance(result, dict) else result
+            )
+            if success:
                 self.current_app = app_name
                 await self._wait_for_app_ready(app_name)
-            return ActionExecutionResult(
-                success=result.get("success", False), method="process"
-            )
+            return ActionExecutionResult(success=success, method="process")
         except Exception as e:
             return ActionExecutionResult(success=False, method="process", error=str(e))
 

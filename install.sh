@@ -36,7 +36,7 @@ print_header() {
 
 print_success() {
     echo -e "${GREEN}${CHECK}${NC} $1"
-}
+}c
 
 print_error() {
     echo -e "${RED}${CROSS}${NC} $1"

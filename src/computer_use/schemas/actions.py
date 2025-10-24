@@ -2,7 +2,7 @@
 Action schemas for different agent types.
 """
 
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Union, Any
 from pydantic import BaseModel, Field
 from .gui_elements import UIElement, SemanticTarget
 
@@ -65,6 +65,121 @@ class GUIAction(BaseModel):
     )
 
 
+class GUIActionHistoryEntry(BaseModel):
+    """
+    Typed entry in action history for GUI agent.
+    """
+
+    step: int = Field(description="Step number")
+    action: str = Field(description="Action type (click, type, etc.)")
+    target: str = Field(description="Target element")
+    success: bool = Field(description="Whether action succeeded")
+    reasoning: str = Field(description="Why this action was taken")
+    method: Optional[str] = Field(
+        default=None, description="Method used (accessibility, ocr, etc.)"
+    )
+
+
+class SystemCommandHistoryEntry(BaseModel):
+    """
+    Typed entry in command history for System agent.
+    """
+
+    command: str = Field(description="Shell command executed")
+    output: str = Field(description="Command output (stdout)")
+    success: Optional[bool] = Field(
+        default=None, description="Whether command succeeded"
+    )
+
+
+class HandoffContext(BaseModel):
+    """
+    Typed context for agent handoffs.
+    """
+
+    original_task: str = Field(description="Original task being attempted")
+    failed_action: Optional[str] = Field(
+        default=None, description="Action that failed (GUI)"
+    )
+    failed_target: Optional[str] = Field(
+        default=None, description="Target element that failed (GUI)"
+    )
+    current_app: Optional[str] = Field(
+        default=None, description="Current application (GUI)"
+    )
+    system_progress: Optional[List[SystemCommandHistoryEntry]] = Field(
+        default=None, description="Command history (System)"
+    )
+    last_output: Optional[str] = Field(
+        default=None, description="Last command output (System)"
+    )
+    loop_pattern: Optional[List[str]] = Field(
+        default=None, description="Detected loop pattern"
+    )
+    repeated_action: Optional[dict[str, Any]] = Field(
+        default=None, description="Action that was repeated"
+    )
+    steps_completed: Optional[int] = Field(
+        default=None, description="Number of steps completed before failure"
+    )
+    last_successful_action: Optional[str] = Field(
+        default=None, description="Last action that succeeded"
+    )
+
+
+class BrowserResultData(BaseModel):
+    """
+    Typed result data from browser agent.
+    """
+
+    files: Optional[List[str]] = Field(default=None, description="Downloaded files")
+    output: Optional[Union[str, dict[str, Any]]] = Field(
+        default=None, description="Extracted data or content"
+    )
+    text: Optional[str] = Field(default=None, description="Extracted text")
+    url: Optional[str] = Field(default=None, description="Final URL")
+    task_complete: Optional[bool] = Field(
+        default=None, description="Whether browser task is complete"
+    )
+
+
+class GUIResultData(BaseModel):
+    """
+    Typed result data from GUI agent.
+    """
+
+    steps: Optional[int] = Field(default=None, description="Number of steps taken")
+    final_action: Optional[str] = Field(
+        default=None, description="Last action performed"
+    )
+    task_complete: Optional[bool] = Field(
+        default=None, description="Whether GUI task is complete"
+    )
+    final_output: Optional[str] = Field(
+        default=None, description="Final output or result"
+    )
+    text: Optional[str] = Field(default=None, description="Extracted text from screen")
+
+
+class SystemResultData(BaseModel):
+    """
+    Typed result data from system agent.
+    """
+
+    commands: Optional[List[SystemCommandHistoryEntry]] = Field(
+        default=None, description="Commands executed with outputs"
+    )
+    output: Optional[str] = Field(default=None, description="Final output")
+    files: Optional[List[str]] = Field(
+        default=None, description="Files created or modified"
+    )
+
+
+AgentResultData = Union[
+    BrowserResultData, GUIResultData, SystemResultData, dict[str, Any]
+]
+
+
 class ActionResult(BaseModel):
     """
     Result of an action execution with support for agent handoffs.
@@ -86,8 +201,8 @@ class ActionResult(BaseModel):
     screenshot_after: Optional[str] = Field(
         default=None, description="Base64 encoded screenshot after action (optional)"
     )
-    data: Optional[dict] = Field(
-        default=None, description="Additional data from action execution"
+    data: Optional[AgentResultData] = Field(
+        default=None, description="Typed data from action execution"
     )
     handoff_requested: bool = Field(
         default=False,
@@ -99,9 +214,9 @@ class ActionResult(BaseModel):
     handoff_reason: Optional[str] = Field(
         default=None, description="Why the handoff is needed"
     )
-    handoff_context: Optional[dict] = Field(
+    handoff_context: Optional[HandoffContext] = Field(
         default=None,
-        description="Context about what was attempted and what needs to be done",
+        description="Typed context about what was attempted and what needs to be done",
     )
 
 

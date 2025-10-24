@@ -2,8 +2,9 @@
 Workflow planning schemas for intelligent task decomposition.
 """
 
-from typing import List, Optional, Any, Literal
+from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
+from .actions import AgentResultData
 
 
 AgentType = Literal["browser", "gui", "system"]
@@ -12,12 +13,15 @@ AgentType = Literal["browser", "gui", "system"]
 class AgentResult(BaseModel):
     """
     Result from a single agent execution.
+    Lightweight summary for workflow context - NO handoff fields (handled immediately by crew).
     """
 
     agent: AgentType = Field(description="Agent type that executed")
     subtask: str = Field(description="Subtask that was executed")
     success: bool = Field(description="Whether execution succeeded")
-    data: Optional[dict[str, Any]] = Field(default=None, description="Result data")
+    data: Optional[AgentResultData] = Field(
+        default=None, description="Typed result data from agent"
+    )
     error: Optional[str] = Field(default=None, description="Error if failed")
 
 

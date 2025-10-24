@@ -3,9 +3,16 @@ System agent that uses shell commands dynamically.
 LLM generates commands iteratively based on output.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 import subprocess
-from ..schemas.actions import ActionResult, CommandResult, ShellCommand
+from ..schemas.actions import (
+    ActionResult,
+    CommandResult,
+    ShellCommand,
+    SystemResultData,
+    HandoffContext,
+    SystemCommandHistoryEntry,
+)
 from ..utils.ui import print_info, print_success, print_failure, console
 from ..utils.platform_helper import PlatformHelper
 
@@ -32,7 +39,7 @@ class SystemAgent:
         self.safety_checker = safety_checker
         self.llm_client = llm_client
         self.max_steps = 10
-        self.command_history = []
+        self.command_history: List[SystemCommandHistoryEntry] = []
         self.platform_helper = PlatformHelper()
 
     async def execute_task(
@@ -84,11 +91,11 @@ class SystemAgent:
                     handoff_requested=True,
                     suggested_agent=command_decision.handoff_agent,
                     handoff_reason=command_decision.handoff_reason,
-                    handoff_context={
-                        "original_task": task,
-                        "system_progress": self.command_history,
-                        "last_output": last_output,
-                    },
+                    handoff_context=HandoffContext(
+                        original_task=task,
+                        system_progress=self.command_history,
+                        last_output=last_output,
+                    ),
                 )
 
             command = command_decision.command
@@ -98,7 +105,11 @@ class SystemAgent:
 
                 result = self._execute_command(command)
                 self.command_history.append(
-                    {"command": command, "output": result.output or ""}
+                    SystemCommandHistoryEntry(
+                        command=command,
+                        output=result.output or "",
+                        success=result.success,
+                    )
                 )
 
                 if not result.success:
@@ -126,7 +137,7 @@ class SystemAgent:
                 action_taken=f"Completed in {step} commands",
                 method_used="system_shell",
                 confidence=1.0,
-                data={"commands": self.command_history},
+                data=SystemResultData(commands=self.command_history),
             )
         else:
             return ActionResult(
@@ -172,9 +183,9 @@ TASK: {task}
         if self.command_history:
             prompt += "\nCOMMAND HISTORY:\n"
             for i, cmd in enumerate(self.command_history[-3:], 1):
-                prompt += f"  {i}. {cmd['command']}\n"
-                if cmd["output"]:
-                    prompt += f"     Output: {cmd['output'][:100]}...\n"
+                prompt += f"  {i}. {cmd.command}\n"
+                if cmd.output:
+                    prompt += f"     Output: {cmd.output[:100]}...\n"
 
         if last_output:
             prompt += f"\nLAST OUTPUT:\n{last_output}\n"
