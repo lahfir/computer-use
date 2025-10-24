@@ -117,7 +117,6 @@ class GUIAgent:
         self.current_app = None
         self.action_history = []
 
-        print_info(f"Starting GUI automation (max {self.max_steps} steps)")
 
         while step < self.max_steps and not task_complete:
             step += 1
@@ -157,7 +156,7 @@ class GUIAgent:
                 self.action_history,
             )
 
-            print_step(step, action.action.value, action.target, action.reasoning)
+            console.print(f"   [dim]{action.action.value}[/dim] → {action.target}")
 
             if len(self.action_history) >= 4:
                 recent = self.action_history[-4:]
@@ -359,7 +358,9 @@ class GUIAgent:
                     if res.get("data"):
                         data = res.get("data")
                         if isinstance(data, dict) and data.get("files"):
-                            previous_work_context += f"   Files: {', '.join(data['files'])}\n"
+                            previous_work_context += (
+                                f"   Files: {', '.join(data['files'])}\n"
+                            )
 
         actions_list = "\n".join([f"- {action.value}" for action in GUIActionType])
 
@@ -479,8 +480,6 @@ What's the next action to make progress on the task?
             result = process_tool.open_application(app_name)
             if result.get("success"):
                 self.current_app = app_name
-                print(f"    📱 Tracking current app: {app_name}")
-
                 await self._wait_for_app_ready(app_name)
             return ActionExecutionResult(
                 success=result.get("success", False), method="process"
@@ -500,11 +499,9 @@ What's the next action to make progress on the task?
 
         if not accessibility_tool or not accessibility_tool.available:
             await asyncio.sleep(0.3)
-            print(f"    ✅ {app_name} ready")
             return
 
         if accessibility_tool.is_app_running(app_name):
-            print(f"    ✅ {app_name} ready (already running)")
             return
 
         max_attempts = 10
@@ -517,13 +514,10 @@ What's the next action to make progress on the task?
             try:
                 elements = accessibility_tool.get_all_interactive_elements(app_name)
                 if elements and len(elements) > 3:
-                    elapsed = attempt * 0.2
-                    print(f"    ✅ {app_name} ready ({elapsed:.1f}s)")
                     return
             except Exception:
                 pass
 
-        print(f"    ✅ {app_name} ready")
         await asyncio.sleep(0.1)
 
     async def _click_element(

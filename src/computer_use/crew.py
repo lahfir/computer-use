@@ -124,7 +124,7 @@ class ComputerUseCrew:
         Returns:
             Result dictionary with execution details
         """
-        console.print(f"\n[bold cyan]🎯 Task:[/bold cyan] {task}\n")
+        console.print(f"\n[bold]{task}[/bold]")
 
         agents_map: dict[str, BrowserAgent | GUIAgent | SystemAgent] = {
             "browser": self.browser_agent,
@@ -139,16 +139,15 @@ class ComputerUseCrew:
 
         while not context.completed and iteration < max_iterations:
             iteration += 1
-            console.print(f"[bold]Step {iteration}[/bold]")
 
             decision = await self.coordinator_agent.decide_next_action(task, context)
 
             if decision.is_complete:
-                console.print("[green]✓ Task complete![/green]\n")
+                console.print("[green]✓ Done[/green]")
                 context.completed = True
                 break
 
-            console.print(f"[cyan]→ {decision.agent}: {decision.subtask}[/cyan]\n")
+            console.print(f"[dim]{iteration}.[/dim] {decision.agent} → {decision.subtask}")
 
             agent = agents_map.get(decision.agent)
             if not agent:
@@ -167,10 +166,8 @@ class ComputerUseCrew:
             )
             context.agent_results.append(agent_result)
 
-            if result.success:
-                console.print("[green]✓ Done[/green]\n")
-            else:
-                console.print(f"[red]✗ Failed: {result.error}[/red]\n")
+            if not result.success:
+                console.print(f"   [red]✗ {result.error}[/red]")
                 break
 
         return WorkflowResult(

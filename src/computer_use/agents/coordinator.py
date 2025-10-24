@@ -41,28 +41,21 @@ class CoordinatorAgent:
         context_summary = self._format_context(context)
 
         prompt = f"""
-You are coordinating multiple agents to complete a task.
+Coordinate agents to complete: "{original_task}"
 
-ORIGINAL TASK: "{original_task}"
+CONTEXT: {context_summary}
 
-CONTEXT SO FAR:
-{context_summary}
+AGENTS:
+- browser: Web tasks
+- gui: Desktop apps
+- system: Files/commands
 
-AVAILABLE AGENTS:
-- browser: Web browsing, research, downloading files from websites
-- gui: Desktop applications (Calculator, Notes, Preview, etc), visual UIs
-- system: File operations, shell commands, organizing files
+RULES:
+• Give agents COMPLETE tasks, not tiny steps (e.g., "Open Calculator and calculate X+Y", not just "Open Calculator")
+• If task is done, set is_complete=True
+• Otherwise, decide which agent + what full subtask
 
-DECIDE NEXT ACTION:
-1. Is the task complete? If yes, set is_complete=True
-2. If not, which agent should go next?
-3. What specific subtask should they do?
-4. Why this agent/subtask?
-
-Think about:
-- What has already been done?
-- What still needs to be done?
-- Which agent is best for the next step?
+What's next?
 """
 
         structured_llm = self.llm_client.with_structured_output(CoordinatorDecision)
