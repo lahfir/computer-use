@@ -5,7 +5,6 @@ GUI agent with screenshot-driven loop (like Browser-Use).
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 from PIL import Image
 from enum import Enum
-from crewai import Agent
 from ..schemas.actions import ActionResult
 from ..schemas.browser_output import BrowserOutput
 from ..schemas.tool_types import ActionExecutionResult
@@ -93,36 +92,6 @@ class GUIAgent:
         self.current_app: Optional[str] = None
         self.action_history: List[Dict[str, Any]] = []
         self.context: Dict[str, Any] = {}
-
-    def create_crewai_agent(self) -> Agent:
-        """
-        Create CrewAI Agent instance with proper configuration.
-
-        Returns:
-            Configured CrewAI Agent for GUI automation
-        """
-        from ..tools.crewai_tool_wrappers import GUIAutomationTool
-
-        gui_tool = GUIAutomationTool(gui_agent=self)
-
-        return Agent(
-            role="Desktop Application Specialist",
-            goal="Interact with desktop applications to accomplish tasks using screenshots and accessibility",
-            backstory="""Expert at GUI automation using vision and accessibility APIs.
-            Specializes in:
-            - Opening and controlling desktop applications
-            - Using files provided by previous agents
-            - Screenshot analysis and element detection
-            - Deciding when CLI approach is better
-            
-            Always checks what files/data previous agents have already created.
-            Uses existing resources instead of recreating them.
-            Can delegate to System agent when command-line is more appropriate.""",
-            tools=[gui_tool],
-            verbose=True,
-            allow_delegation=True,
-            memory=True,
-        )
 
     async def execute_task(
         self, task: str, context: Optional[Dict[str, Any]] = None

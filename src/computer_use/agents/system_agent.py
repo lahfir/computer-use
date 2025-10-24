@@ -6,7 +6,6 @@ LLM generates commands iteratively based on output.
 from typing import Dict, Any, Optional
 import subprocess
 from pydantic import BaseModel, Field
-from crewai import Agent
 from ..schemas.actions import ActionResult
 from ..utils.ui import print_info, print_success, print_failure, console
 
@@ -52,43 +51,6 @@ class SystemAgent:
         self.llm_client = llm_client
         self.max_steps = 10
         self.command_history = []
-
-    def create_crewai_agent(self, confirmation_manager) -> Agent:
-        """
-        Create CrewAI Agent instance with proper configuration.
-
-        Args:
-            confirmation_manager: Command confirmation manager for safety
-
-        Returns:
-            Configured CrewAI Agent for system operations
-        """
-        from ..tools.crewai_tool_wrappers import SystemOperationsTool
-
-        system_tool = SystemOperationsTool(
-            system_agent=self, confirmation_manager=confirmation_manager
-        )
-
-        return Agent(
-            role="System Operations Specialist",
-            goal="Manage files, execute commands, and organize data using shell operations",
-            backstory="""Expert at file operations and shell command execution.
-            Specializes in:
-            - File management (copy, move, organize, verify)
-            - Using resources created by previous agents
-            - Checking what already exists before recreating
-            - Asking for confirmation before destructive operations
-            
-            CRITICAL: Always checks what previous agents have already done.
-            Never recreates files that already exist - uses available resources instead.
-            Reads previous agent outputs to understand what files/data are available.
-            
-            Can delegate to GUI agent when visual interaction is needed.""",
-            tools=[system_tool],
-            verbose=True,
-            allow_delegation=True,
-            memory=True,
-        )
 
     async def execute_task(
         self, task: str, context: Dict[str, Any] = None

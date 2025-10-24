@@ -1,10 +1,9 @@
 """
 CrewAI crew configuration for computer use automation.
-Uses CrewAI's built-in orchestration with memory and context passing.
+Uses coordinator for intelligent planning, then direct agent execution.
 """
 
 from pathlib import Path
-from crewai import Agent, Crew, Process
 from .config.llm_config import LLMConfig
 from .agents.coordinator import CoordinatorAgent
 from .agents.gui_agent import GUIAgent
@@ -101,92 +100,22 @@ class ComputerUseCrew:
         Initialize all specialized agent instances.
         These handle the actual work.
         """
-        self.coordinator_agent = CoordinatorAgent(self.llm)
+        # Pass the Pydantic model directly, not a fucking dict!
+        self.coordinator_agent = CoordinatorAgent(self.llm, self.capabilities)
         self.gui_agent = GUIAgent(self.tool_registry, self.vision_llm)
         self.browser_agent = BrowserAgent(self.tool_registry)
         self.system_agent = SystemAgent(
             self.tool_registry, self.safety_checker, self.llm
         )
 
-    def _create_crew(self):
-        """
-        CrewAI Crew orchestration is managed directly via execute_task method.
-
-        The execute_task method analyzes tasks and delegates to specialized agents
-        (Coordinator, Browser, GUI, System) based on task requirements.
-
-        This provides more flexibility than using CrewAI's built-in task delegation,
-        as we need dynamic routing based on task analysis results.
-
-        Returns:
-            None (crew delegation handled manually)
-        """
-        # Not creating a Crew instance since we manage delegation manually
-        return None
-
-    def create_coordinator_agent(self) -> Agent:
-        """
-        Create coordinator agent for task analysis.
-        """
-        config = self.agents_config["coordinator"]
-
-        return Agent(
-            role=config["role"],
-            goal=config["goal"],
-            backstory=config["backstory"],
-            verbose=config.get("verbose", True),
-            llm=self.llm,
-            allow_delegation=True,
-        )
-
-    def create_gui_agent_wrapper(self) -> Agent:
-        """
-        Create CrewAI agent wrapper for GUI agent.
-        """
-        config = self.agents_config["gui_agent"]
-
-        return Agent(
-            role=config["role"],
-            goal=config["goal"],
-            backstory=config["backstory"],
-            verbose=config.get("verbose", True),
-            llm=self.vision_llm,
-        )
-
-    def create_browser_agent_wrapper(self) -> Agent:
-        """
-        Create CrewAI agent wrapper for browser agent.
-        """
-        config = self.agents_config["browser_agent"]
-
-        return Agent(
-            role=config["role"],
-            goal=config["goal"],
-            backstory=config["backstory"],
-            verbose=config.get("verbose", True),
-            llm=self.llm,
-        )
-
-    def create_system_agent_wrapper(self) -> Agent:
-        """
-        Create CrewAI agent wrapper for system agent.
-        """
-        config = self.agents_config["system_agent"]
-
-        return Agent(
-            role=config["role"],
-            goal=config["goal"],
-            backstory=config["backstory"],
-            verbose=config.get("verbose", True),
-            llm=self.llm,
-        )
-
     async def execute_task(self, task: str) -> dict:
         """
-        Execute task using CrewAI's intelligent orchestration.
+        Execute task using coordinator for planning, then direct agent execution.
 
-        Coordinator analyzes task and creates intelligent Task objects.
-        CrewAI handles execution with memory and context passing.
+        SIMPLE APPROACH:
+        1. Coordinator analyzes and creates workflow plan
+        2. Execute each step directly with our agents (no CrewAI complexity)
+        3. Pass context between steps manually
 
         Args:
             task: Natural language task description
@@ -196,54 +125,60 @@ class ComputerUseCrew:
         """
         console.print(f"\n[bold cyan]🎯 Task:[/bold cyan] {task}\n")
 
-        # PHASE 1: Create intelligent tasks via coordinator
+        # PHASE 1: Get intelligent workflow plan
         console.print("[bold]Creating intelligent workflow plan...[/bold]")
 
-        available_agents = {
-            "browser": self.browser_agent.create_crewai_agent(),
-            "gui": self.gui_agent.create_crewai_agent(),
-            "system": self.system_agent.create_crewai_agent(self.confirmation_manager),
-        }
+        understanding = await self.coordinator_agent._understand_intent(task)
+        workflow = await self.coordinator_agent._plan_workflow(understanding)
 
-        tasks = await self.coordinator_agent.create_intelligent_tasks(
-            task, available_agents
-        )
+        console.print(f"[green]✓ Created {len(workflow.steps)} step plan[/green]\n")
 
-        console.print(f"[green]✓ Created {len(tasks)} intelligent tasks[/green]\n")
+        # PHASE 2: Execute steps sequentially with our agents
+        results = []
+        context = {"previous_results": []}
 
-        # PHASE 2: Create CrewAI Crew with memory
-        crew = Crew(
-            agents=list(available_agents.values()),
-            tasks=tasks,
-            process=Process.sequential,
-            memory=True,
-            verbose=True,
-            full_output=True,
-        )
+        for i, step in enumerate(workflow.steps, 1):
+            console.print(f"[bold]Step {i}/{len(workflow.steps)}: {step.role}[/bold]")
 
-        # PHASE 3: Let CrewAI orchestrate (handles context passing automatically)
-        console.print("[bold]🚀 Starting CrewAI orchestration...[/bold]\n")
+            # Get the right agent
+            if step.agent_type == "browser":
+                agent = self.browser_agent
+            elif step.agent_type == "gui":
+                agent = self.gui_agent
+            elif step.agent_type == "system":
+                agent = self.system_agent
+            else:
+                console.print(f"[red]Unknown agent type: {step.agent_type}[/red]")
+                continue
 
-        try:
-            result = await crew.kickoff_async()
-
-            console.print(
-                "\n[bold green]✅ Task completed successfully![/bold green]\n"
+            # Execute with context
+            result = await agent.execute_task(step.instructions, context=context)
+            results.append(result)
+            context["previous_results"].append(
+                {
+                    "agent": step.agent_type,
+                    "result": (
+                        result.__dict__ if hasattr(result, "__dict__") else str(result)
+                    ),
+                }
             )
 
-            return {
-                "success": True,
-                "result": str(result),
-                "tasks_completed": len(tasks),
-                "crew_output": result,
-            }
-        except Exception as e:
-            console.print(f"\n[bold red]❌ Task failed: {str(e)}[/bold red]\n")
-            return {
-                "success": False,
-                "error": str(e),
-                "tasks_attempted": len(tasks),
-            }
+            if result.success:
+                console.print(f"[green]✓ Step {i} completed[/green]\n")
+            else:
+                console.print(f"[red]✗ Step {i} failed: {result.error}[/red]\n")
+                break
+
+        return {
+            "success": all(r.success for r in results),
+            "result": (
+                results[-1].__dict__
+                if results and hasattr(results[-1], "__dict__")
+                else "No results"
+            ),
+            "tasks_completed": len([r for r in results if r.success]),
+            "total_steps": len(workflow.steps),
+        }
 
     async def execute_task_legacy(self, task: str) -> dict:
         """

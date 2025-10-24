@@ -2,9 +2,11 @@
 Professional terminal UI using rich.
 """
 
+from typing import List, Optional
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.live import Live
 from rich import box
 
 console = Console()
@@ -296,3 +298,107 @@ def print_action_history(history: list):
         )
 
     console.print(table)
+
+
+class TaskTracker:
+    """
+    Live task tracker that displays workflow tasks at the bottom of the terminal.
+    """
+
+    def __init__(self) -> None:
+        """Initialize task tracker."""
+        self.tasks: List[dict] = []
+        self.live: Optional[Live] = None
+
+    def set_tasks(self, tasks: List[dict]) -> None:
+        """
+        Set the list of tasks to track.
+
+        Args:
+            tasks: List of task dicts with 'description', 'agent', 'status'
+        """
+        self.tasks = tasks
+
+    def update_task_status(self, task_index: int, status: str) -> None:
+        """
+        Update the status of a specific task.
+
+        Args:
+            task_index: Index of the task to update
+            status: New status ('pending', 'running', 'completed', 'failed')
+        """
+        if 0 <= task_index < len(self.tasks):
+            self.tasks[task_index]["status"] = status
+
+    def _build_display(self) -> Panel:
+        """
+        Build the task display panel.
+
+        Returns:
+            Panel with task list
+        """
+        if not self.tasks:
+            return Panel(
+                "[dim]No tasks yet...[/dim]",
+                title="📋 Workflow Tasks",
+                border_style="blue",
+                box=box.ROUNDED,
+            )
+
+        table = Table(box=None, show_header=True, expand=True)
+        table.add_column("#", style="cyan", width=3)
+        table.add_column("Agent", style="magenta", width=12)
+        table.add_column("Task", style="white", no_wrap=False)
+        table.add_column("Status", style="green", width=12)
+
+        for i, task in enumerate(self.tasks, 1):
+            status = task.get("status", "pending")
+
+            # Status icons and colors
+            if status == "running":
+                status_text = "[yellow]⏳ Running[/yellow]"
+            elif status == "completed":
+                status_text = "[green]✅ Done[/green]"
+            elif status == "failed":
+                status_text = "[red]❌ Failed[/red]"
+            else:
+                status_text = "[dim]⏸️  Pending[/dim]"
+
+            # Truncate description for display
+            description = task.get("description", "")
+            if len(description) > 80:
+                description = description[:77] + "..."
+
+            table.add_row(
+                str(i), task.get("agent", "unknown"), description, status_text
+            )
+
+        return Panel(
+            table,
+            title="📋 Workflow Tasks",
+            border_style="blue",
+            box=box.ROUNDED,
+        )
+
+    def start(self) -> None:
+        """Start the live display (call this once at the beginning)."""
+        if self.live is None:
+            self.live = Live(
+                self._build_display(), console=console, refresh_per_second=4
+            )
+            self.live.start()
+
+    def update(self) -> None:
+        """Update the live display with current task state."""
+        if self.live:
+            self.live.update(self._build_display())
+
+    def stop(self) -> None:
+        """Stop the live display."""
+        if self.live:
+            self.live.stop()
+            self.live = None
+
+
+# Global task tracker instance
+task_tracker = TaskTracker()

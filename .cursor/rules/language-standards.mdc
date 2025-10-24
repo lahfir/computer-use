@@ -1,25 +1,38 @@
 ---
-globs: *.js,*.jsx,*.ts,*.tsx,*.py,*.java,*.go,*.rs
-description: Language-specific coding standards
+alwaysApply: true
 ---
 
-# Language-Specific Standards
+# Python Coding Standards
 
-## JavaScript/TypeScript
+## Style and Conventions
 
-- Use TypeScript for type safety when available
-- Prefer `const` and `let` over `var`
-- Use arrow functions for short, simple functions
-- Implement proper error handling with try-catch blocks
-- Use async/await over promises when possible
+- Follow PEP 8 style guidelines strictly
+- Use type hints (annotations) for all function parameters and return values
+- Use descriptive variable names (no single letters except for loops/comprehensions)
+- Prefer `snake_case` for functions and variables, `PascalCase` for classes
+- Maximum line length: 88 characters (Black/Ruff default)
 
-## Python
+## Type Hints
 
-- Follow PEP 8 style guidelines
-- Use type hints for function parameters and return values
-- Implement proper exception handling
-- Use list/dict comprehensions when appropriate
+- Always add type hints to function signatures: `def func(x: int) -> str:`
+- Use modern Python type syntax: `list[str]`, `dict[str, int]` (Python 3.9+)
+- Import from `typing` when needed: `Optional`, `Union`, `Literal`, `Callable`, etc.
+- Avoid using `Any` unless absolutely necessary
+
+## Error Handling
+
+- Implement proper exception handling with try/except blocks
+- Use specific exception types (ValueError, TypeError, etc.) not bare `except:`
+- Always provide meaningful error messages
+- Don't suppress errors silently
+
+## Code Style
+
+- Use list/dict comprehensions when they improve readability
+- Prefer f-strings for string formatting: `f"Hello {name}"`
+- Use context managers (`with` statements) for resource management
 - Follow the principle of least surprise
+- Use early returns to reduce nesting
 
 ## General Principles
 

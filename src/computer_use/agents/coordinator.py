@@ -3,9 +3,12 @@ Intelligent coordinator agent for task analysis, workflow planning,
 and CrewAI Task creation with rich context.
 """
 
-from typing import List
+from typing import List, TYPE_CHECKING
 from crewai import Task
 from ..schemas.workflow import TaskUnderstanding, WorkflowPlan, WorkflowStep
+
+if TYPE_CHECKING:
+    from ..utils.platform_detector import PlatformCapabilities
 
 
 class CoordinatorAgent:
@@ -14,14 +17,16 @@ class CoordinatorAgent:
     Creates detailed, context-aware tasks with proper agent routing.
     """
 
-    def __init__(self, llm_client):
+    def __init__(self, llm_client, capabilities: "PlatformCapabilities"):
         """
         Initialize coordinator agent.
 
         Args:
             llm_client: LLM client for intelligent analysis and planning
+            capabilities: PlatformCapabilities object (typed, not a dict!)
         """
         self.llm_client = llm_client
+        self.capabilities = capabilities
 
     async def create_intelligent_tasks(
         self, user_request: str, available_agents: dict
@@ -191,8 +196,26 @@ Now create the execution plan:
         """
         previous_context = self._format_previous_context(previous_tasks)
 
+        # Use actual Pydantic model attributes, not dict!
+        os_type = self.capabilities.os_type
+        tools = self.capabilities.supported_tools
+        accessibility = f"{self.capabilities.accessibility_api_type} (100% accurate)" if self.capabilities.accessibility_api_available else "Not available"
+        
         prompt = f"""
 You are crafting detailed instructions for a {step.agent_type} agent.
+
+═══════════════════════════════════════════════════════════
+SYSTEM ENVIRONMENT
+═══════════════════════════════════════════════════════════
+OPERATING SYSTEM: {os_type}
+ACCESSIBILITY API: {accessibility}
+AVAILABLE TOOLS: {", ".join(tools)}
+
+CRITICAL: This is {os_type}, NOT Windows!
+- Use macOS commands (e.g., 'open Calculator' NOT 'C:\\Windows\\calc.exe')
+- Use bash commands, NOT PowerShell
+- Use macOS accessibility API when available
+- Use '~/' for home directory, not Windows paths
 
 ═══════════════════════════════════════════════════════════
 MISSION CONTEXT

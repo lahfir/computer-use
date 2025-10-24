@@ -2,7 +2,6 @@
 Browser agent for web automation using Browser-Use.
 """
 
-from crewai import Agent
 from ..schemas.actions import ActionResult
 
 
@@ -21,34 +20,6 @@ class BrowserAgent:
         """
         self.tool_registry = tool_registry
         self.browser_tool = tool_registry.get_tool("browser")
-
-    def create_crewai_agent(self) -> Agent:
-        """
-        Create CrewAI Agent instance with proper configuration.
-
-        Returns:
-            Configured CrewAI Agent for web automation
-        """
-        from ..tools.crewai_tool_wrappers import BrowserAutomationTool
-
-        browser_tool = BrowserAutomationTool(browser_agent=self)
-
-        return Agent(
-            role="Web Research Specialist",
-            goal="Extract information from websites and save to permanent storage",
-            backstory="""Expert at web automation and data extraction using browser automation.
-            Specializes in:
-            - Navigating websites and extracting structured data
-            - Downloading files and organizing research
-            - Saving to permanent locations (~/Documents/AgentWorkspace/[task-name]/)
-            - Providing clear file paths and summaries to other agents
-            
-            Always saves work to permanent directories so other agents can use the files.
-            Never uses temp directories for final outputs.""",
-            tools=[browser_tool],
-            verbose=True,
-            allow_delegation=False,
-        )
 
     async def execute_task(
         self, task: str, url: str = None, context: dict = None

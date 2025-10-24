@@ -32,3 +32,17 @@ description: Development practices and accuracy guidelines
 - Validate that code works as documented
 - Ensure error handling follows documented patterns
 - Verify edge cases are handled according to documentation
+
+## Python Type Hints and Data Validation
+
+- **ALWAYS use Python type hints** (annotations) for all functions, methods, and variables
+- Add type hints to function parameters and return values: `def func(name: str, age: int) -> dict[str, Any]:`
+- Never use `Any` from `typing` unless absolutely necessary and well-justified
+- Use Pydantic models (BaseModel) for data validation and serialization
+- Define Pydantic models for complex data structures and API schemas
+- Leverage Pydantic's runtime validation for input/output data
+- Import from `typing` for type annotations: `Union`, `Optional`, `list`, `dict`, `Literal`, etc.
+- Ensure all Pydantic models have proper field type annotations and validation rules
+- Use Pydantic's `Field` for additional validation constraints and metadata
+- Always validate external data (user input, API responses, file contents) with Pydantic models
+- Use ruff to check type hints and catch type-related issues
