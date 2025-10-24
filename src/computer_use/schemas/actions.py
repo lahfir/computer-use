@@ -7,6 +7,17 @@ from pydantic import BaseModel, Field
 from .gui_elements import UIElement, SemanticTarget
 
 
+class CommandResult(BaseModel):
+    """
+    Result from executing a shell command.
+    """
+
+    success: bool = Field(description="Whether command succeeded")
+    command: str = Field(description="Command that was executed")
+    output: Optional[str] = Field(default=None, description="stdout if successful")
+    error: Optional[str] = Field(default=None, description="stderr or error message")
+
+
 class GUIAction(BaseModel):
     """
     Structured action for GUI automation.

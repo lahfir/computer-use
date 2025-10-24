@@ -147,7 +147,9 @@ class ComputerUseCrew:
                 context.completed = True
                 break
 
-            console.print(f"\n[bold cyan]Step {iteration}:[/bold cyan] {decision.agent}")
+            console.print(
+                f"\n[bold cyan]Step {iteration}:[/bold cyan] {decision.agent}"
+            )
             console.print(f"  [dim]Task:[/dim] {decision.subtask}")
             console.print(f"  [dim]Reasoning:[/dim] {decision.reasoning}")
 

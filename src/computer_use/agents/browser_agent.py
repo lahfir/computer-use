@@ -26,7 +26,10 @@ class BrowserAgent:
         self.browser_tool = tool_registry.get_tool("browser")
 
     async def execute_task(
-        self, task: str, url: str | None = None, context: "WorkflowContext | None" = None
+        self,
+        task: str,
+        url: str | None = None,
+        context: "WorkflowContext | None" = None,
     ) -> ActionResult:
         """
         Execute web automation task.

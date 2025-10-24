@@ -3,10 +3,10 @@ System agent that uses shell commands dynamically.
 LLM generates commands iteratively based on output.
 """
 
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Dict, Optional, TYPE_CHECKING
 import subprocess
 from pydantic import BaseModel, Field
-from ..schemas.actions import ActionResult
+from ..schemas.actions import ActionResult, CommandResult
 from ..utils.ui import print_info, print_success, print_failure, console
 
 if TYPE_CHECKING:
@@ -157,14 +157,14 @@ class SystemAgent:
 
                 result = self._execute_command(command)
                 self.command_history.append(
-                    {"command": command, "output": result.get("output", "")}
+                    {"command": command, "output": result.output or ""}
                 )
 
-                if not result["success"]:
-                    print_failure(f"Failed: {result.get('error')}")
-                    last_output = f"ERROR: {result.get('error')}"
+                if not result.success:
+                    print_failure(f"Failed: {result.error}")
+                    last_output = f"ERROR: {result.error}"
                 else:
-                    output = result.get("output", "").strip()
+                    output = (result.output or "").strip()
                     if output:
                         console.print(
                             f"  [green]Output:[/green] {output[:200]}{'...' if len(output) > 200 else ''}"
@@ -272,7 +272,7 @@ Generate the next command:
                 is_complete=True,
             )
 
-    def _execute_command(self, command: str) -> Dict[str, Any]:
+    def _execute_command(self, command: str) -> CommandResult:
         """
         Execute shell command safely.
 
@@ -280,7 +280,7 @@ Generate the next command:
             command: Shell command to execute
 
         Returns:
-            Result dictionary with output or error
+            CommandResult with output or error
         """
         try:
             result = subprocess.run(
@@ -293,23 +293,19 @@ Generate the next command:
             )
 
             if result.returncode == 0:
-                return {
-                    "success": True,
-                    "output": result.stdout,
-                    "command": command,
-                }
+                return CommandResult(
+                    success=True, command=command, output=result.stdout
+                )
             else:
-                return {
-                    "success": False,
-                    "error": result.stderr or "Command failed",
-                    "command": command,
-                }
+                return CommandResult(
+                    success=False,
+                    command=command,
+                    error=result.stderr or "Command failed",
+                )
 
         except subprocess.TimeoutExpired:
-            return {
-                "success": False,
-                "error": "Command timed out (30s)",
-                "command": command,
-            }
+            return CommandResult(
+                success=False, command=command, error="Command timed out (30s)"
+            )
         except Exception as e:
-            return {"success": False, "error": str(e), "command": command}
+            return CommandResult(success=False, command=command, error=str(e))

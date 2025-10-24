@@ -153,7 +153,9 @@ class GUIAgent:
                 self.action_history,
             )
 
-            console.print(f"  [cyan]→ {action.action.value}[/cyan] [white]{action.target}[/white]")
+            console.print(
+                f"  [cyan]→ {action.action.value}[/cyan] [white]{action.target}[/white]"
+            )
             if action.reasoning:
                 console.print(f"    [dim]{action.reasoning}[/dim]")
 
