@@ -2,6 +2,7 @@
 Browser agent for web automation using Browser-Use.
 """
 
+from typing import Any
 from ..schemas.actions import ActionResult
 
 
@@ -22,7 +23,7 @@ class BrowserAgent:
         self.browser_tool = tool_registry.get_tool("browser")
 
     async def execute_task(
-        self, task: str, url: str = None, context: dict = None
+        self, task: str, url: str | None = None, context: dict[str, Any] | None = None
     ) -> ActionResult:
         """
         Execute web automation task.

@@ -2,12 +2,15 @@
 Professional terminal UI using rich.
 """
 
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.live import Live
 from rich import box
+
+if TYPE_CHECKING:
+    from ..schemas.workflow import WorkflowResult
 
 console = Console()
 
@@ -211,9 +214,12 @@ def print_handoff(from_agent: str, to_agent: str, reason: str):
     console.print()
 
 
-def print_task_result(result):
+def print_task_result(result: "WorkflowResult"):
     """
     Display final task result.
+
+    Args:
+        result: WorkflowResult from crew execution
     """
     if result.success:
         console.print(f"\n[green]✓ Completed in {result.iterations} step(s)[/green]")

@@ -53,7 +53,7 @@ class SystemAgent:
         self.command_history = []
 
     async def execute_task(
-        self, task: str, context: Dict[str, Any] = None
+        self, task: str, context: dict[str, Any] | None = None
     ) -> ActionResult:
         """
         Execute task by generating shell commands iteratively.

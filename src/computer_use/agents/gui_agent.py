@@ -8,9 +8,6 @@ from enum import Enum
 from ..schemas.actions import ActionResult
 from ..schemas.tool_types import ActionExecutionResult
 from ..utils.ui import (
-    print_info,
-    print_step,
-    print_success,
     print_failure,
     print_warning,
     console,
@@ -93,7 +90,7 @@ class GUIAgent:
         self.context: Dict[str, Any] = {}
 
     async def execute_task(
-        self, task: str, context: Optional[Dict[str, Any]] = None
+        self, task: str, context: dict[str, Any] | None = None
     ) -> ActionResult:
         """
         Execute GUI task using screenshot-driven loop.
