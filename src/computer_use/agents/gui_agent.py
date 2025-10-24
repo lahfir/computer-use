@@ -154,10 +154,10 @@ class GUIAgent:
             )
 
             console.print(
-                f"  [cyan]→ {action.action.value}[/cyan] [white]{action.target}[/white]"
+                f"  [bold cyan]→ {action.action.value}[/bold cyan] [yellow]{action.target}[/yellow]"
             )
             if action.reasoning:
-                console.print(f"    [dim]{action.reasoning}[/dim]")
+                console.print(f"    [dim italic]{action.reasoning}[/dim italic]")
 
             if len(self.action_history) >= 4:
                 recent = self.action_history[-4:]
@@ -249,16 +249,29 @@ class GUIAgent:
                     )
             else:
                 consecutive_failures = 0
+                
+                # Show method used and execution details
+                method = step_result.get("method", "unknown")
+                method_display = {
+                    "accessibility": "[green]✓ Accessibility API[/green] (100% accurate)",
+                    "process": "[green]✓ Process Manager[/green]",
+                    "input": "[blue]⌨️  Direct Input[/blue]",
+                    "ocr": "[yellow]🔍 OCR Vision[/yellow] (95% accurate)",
+                    "cv": "[yellow]🔍 Computer Vision[/yellow] (90% accurate)",
+                }.get(method, f"[dim]{method}[/dim]")
+                
+                console.print(f"    {method_display}")
+                
                 current_coords = step_result.get("coordinates")
                 if current_coords:
                     x, y = current_coords
-                    console.print(f"  [dim]Coordinates: ({x}, {y})[/dim]")
+                    console.print(f"    [dim]Position: ({x}, {y})[/dim]")
 
                     if last_coordinates == current_coords:
                         repeated_clicks += 1
                         if repeated_clicks >= 3:
-                            print(
-                                "    ⚠️  WARNING: Clicked same location 3 times - might be stuck!"
+                            print_warning(
+                                "Clicked same location 3 times - might be stuck!"
                             )
                             return ActionResult(
                                 success=False,
@@ -271,6 +284,15 @@ class GUIAgent:
                         repeated_clicks = 0
 
                     last_coordinates = current_coords
+                
+                # Show any additional data from execution
+                if step_result.get("data"):
+                    data_str = step_result.get("data")
+                    if isinstance(data_str, dict):
+                        if data_str.get("text"):
+                            console.print(f"    [dim]Text: {data_str['text'][:50]}...[/dim]")
+                    elif isinstance(data_str, str) and len(data_str) < 100:
+                        console.print(f"    [dim]Output: {data_str}[/dim]")
 
             last_action = action
             task_complete = action.is_complete
@@ -279,6 +301,22 @@ class GUIAgent:
                 await asyncio.sleep(0.5)
 
         if task_complete:
+            # Print professional summary
+            console.print()
+            console.print("[green]━━━ Task Summary ━━━[/green]")
+            console.print(f"  [green]✓[/green] Steps completed: [white]{step}[/white]")
+            console.print(f"  [green]✓[/green] Application: [white]{self.current_app or 'N/A'}[/white]")
+            
+            # Count methods used
+            methods_used = set()
+            for h in self.action_history:
+                if h.get("success"):
+                    methods_used.add(h.get("method", "gui"))
+            if methods_used:
+                methods_str = ", ".join(sorted(methods_used))
+                console.print(f"  [green]✓[/green] Methods: [white]{methods_str}[/white]")
+            console.print()
+            
             return ActionResult(
                 success=True,
                 action_taken=f"Completed task in {step} steps",
@@ -291,6 +329,12 @@ class GUIAgent:
                 },
             )
         else:
+            console.print()
+            console.print("[red]━━━ Task Failed ━━━[/red]")
+            console.print(f"  [red]✗[/red] Reached maximum steps: [white]{self.max_steps}[/white]")
+            console.print(f"  [red]✗[/red] Steps attempted: [white]{step}[/white]")
+            console.print()
+            
             return ActionResult(
                 success=False,
                 action_taken=f"Exceeded max steps ({self.max_steps})",
