@@ -9,11 +9,10 @@ from .utils.safety_checker import SafetyChecker
 from .utils.command_confirmation import CommandConfirmation
 from .utils.permissions import check_and_request_permissions
 from .utils.logging_config import setup_logging
+from .utils.task_stop_handler import TaskStopHandler
 from .utils.ui import (
-    print_banner,
-    print_platform_info,
-    print_section_header,
     print_task_result,
+    print_platform_info,
     console,
 )
 from .crew import ComputerUseCrew
@@ -25,34 +24,42 @@ async def main():
     """
     setup_logging()
 
-    print_banner()
+    console.print("\n[bold cyan]🤖 Computer Use Agent[/bold cyan]")
+    console.print()
 
     if not check_and_request_permissions():
         console.print("[yellow]Exiting due to missing permissions.[/yellow]")
         sys.exit(1)
 
-    print_section_header("Platform Detection", "🔍")
+    console.print("\n[bold blue]🔍 Platform Detection[/bold blue]")
+    console.print()
     capabilities = detect_platform()
     print_platform_info(capabilities)
 
-    print_section_header("Initializing Systems", "🚀")
-
+    console.print("\n[bold blue]🚀 Initializing Systems[/bold blue]")
+    console.print()
     console.print("[cyan]• Safety Checker[/cyan]")
     safety_checker = SafetyChecker()
 
     console.print("[cyan]• Command Confirmation System[/cyan]")
     confirmation_manager = CommandConfirmation()
 
+    console.print("[cyan]• Task Stop Handler (ESC support)[/cyan]")
+    stop_handler = TaskStopHandler()
+
     console.print("[cyan]• AI Agents & Tool Registry[/cyan]")
     crew = ComputerUseCrew(
-        capabilities, safety_checker, confirmation_manager=confirmation_manager
+        capabilities,
+        safety_checker,
+        confirmation_manager=confirmation_manager,
+        stop_handler=stop_handler,
     )
-    console.print(
-        f"[green]✅ Loaded {len(crew.tool_registry.list_available_tools())} tools[/green]"
-    )
-    console.print("[green]✅ Crew initialized with Browser-Use integration[/green]")
 
-    print_section_header("Ready for Automation", "✨")
+    console.print(
+        f"[green]✅ Ready[/green] ({capabilities.os_type}, {len(crew.tool_registry.list_available_tools())} tools)"
+    )
+    console.print("[dim]Press ESC during task execution to stop[/dim]")
+    console.print()
 
     while True:
         try:
@@ -67,12 +74,14 @@ async def main():
                 console.print("\n[bold cyan]👋 Goodbye![/bold cyan]")
                 break
 
-            console.print(
-                f"\n[bold yellow]⏳ Processing:[/bold yellow] [white]{task}[/white]"
-            )
-            result = await crew.execute_task(task)
+            stop_handler.reset()
+            stop_handler.start_listening()
 
-            print_task_result(result)
+            try:
+                result = await crew.execute_task(task)
+                print_task_result(result)
+            finally:
+                stop_handler.stop_listening()
 
         except KeyboardInterrupt:
             console.print("\n\n[yellow]⚠️  Interrupted by user[/yellow]")

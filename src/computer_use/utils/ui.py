@@ -11,6 +11,7 @@ from rich import box
 
 if TYPE_CHECKING:
     from ..schemas.workflow import WorkflowResult
+    from .platform_detector import PlatformCapabilities
 
 console = Console()
 
@@ -39,9 +40,12 @@ def print_section_header(title: str, icon: str = ""):
     console.print()
 
 
-def print_platform_info(capabilities):
+def print_platform_info(capabilities: "PlatformCapabilities"):
     """
     Display platform capabilities in styled table.
+
+    Args:
+        capabilities: PlatformCapabilities instance
     """
     table = Table(title="Platform Information", box=box.ROUNDED, show_header=False)
     table.add_column("Property", style="cyan")
