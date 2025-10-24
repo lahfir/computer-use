@@ -249,7 +249,7 @@ class GUIAgent:
                     )
             else:
                 consecutive_failures = 0
-                
+
                 # Show method used and execution details
                 method = step_result.get("method", "unknown")
                 method_display = {
@@ -259,9 +259,9 @@ class GUIAgent:
                     "ocr": "[yellow]🔍 OCR Vision[/yellow] (95% accurate)",
                     "cv": "[yellow]🔍 Computer Vision[/yellow] (90% accurate)",
                 }.get(method, f"[dim]{method}[/dim]")
-                
+
                 console.print(f"    {method_display}")
-                
+
                 current_coords = step_result.get("coordinates")
                 if current_coords:
                     x, y = current_coords
@@ -284,13 +284,15 @@ class GUIAgent:
                         repeated_clicks = 0
 
                     last_coordinates = current_coords
-                
+
                 # Show any additional data from execution
                 if step_result.get("data"):
                     data_str = step_result.get("data")
                     if isinstance(data_str, dict):
                         if data_str.get("text"):
-                            console.print(f"    [dim]Text: {data_str['text'][:50]}...[/dim]")
+                            console.print(
+                                f"    [dim]Text: {data_str['text'][:50]}...[/dim]"
+                            )
                     elif isinstance(data_str, str) and len(data_str) < 100:
                         console.print(f"    [dim]Output: {data_str}[/dim]")
 
@@ -305,8 +307,10 @@ class GUIAgent:
             console.print()
             console.print("[green]━━━ Task Summary ━━━[/green]")
             console.print(f"  [green]✓[/green] Steps completed: [white]{step}[/white]")
-            console.print(f"  [green]✓[/green] Application: [white]{self.current_app or 'N/A'}[/white]")
-            
+            console.print(
+                f"  [green]✓[/green] Application: [white]{self.current_app or 'N/A'}[/white]"
+            )
+
             # Count methods used
             methods_used = set()
             for h in self.action_history:
@@ -314,9 +318,11 @@ class GUIAgent:
                     methods_used.add(h.get("method", "gui"))
             if methods_used:
                 methods_str = ", ".join(sorted(methods_used))
-                console.print(f"  [green]✓[/green] Methods: [white]{methods_str}[/white]")
+                console.print(
+                    f"  [green]✓[/green] Methods: [white]{methods_str}[/white]"
+                )
             console.print()
-            
+
             return ActionResult(
                 success=True,
                 action_taken=f"Completed task in {step} steps",
@@ -331,10 +337,12 @@ class GUIAgent:
         else:
             console.print()
             console.print("[red]━━━ Task Failed ━━━[/red]")
-            console.print(f"  [red]✗[/red] Reached maximum steps: [white]{self.max_steps}[/white]")
+            console.print(
+                f"  [red]✗[/red] Reached maximum steps: [white]{self.max_steps}[/white]"
+            )
             console.print(f"  [red]✗[/red] Steps attempted: [white]{step}[/white]")
             console.print()
-            
+
             return ActionResult(
                 success=False,
                 action_taken=f"Exceeded max steps ({self.max_steps})",
@@ -388,14 +396,31 @@ class GUIAgent:
 
         previous_work_context = ""
         if self.context and self.context.agent_results:
-            previous_work_context = "\n\nPREVIOUS WORK:\n"
+            previous_work_context = "\n\nPREVIOUS WORK & DATA:\n"
             for res in self.context.agent_results:
                 success = "✅" if res.success else "❌"
                 previous_work_context += f"{success} {res.agent}: {res.subtask}\n"
-                if res.data and isinstance(res.data, dict) and res.data.get("files"):
-                    previous_work_context += (
-                        f"   Files: {', '.join(res.data['files'])}\n"
-                    )
+                
+                # Include actual data content if available
+                if res.data and isinstance(res.data, dict):
+                    # If there's text/content, include it
+                    if res.data.get("output"):
+                        output = res.data["output"]
+                        if isinstance(output, str):
+                            previous_work_context += f"   DATA: {output[:1000]}{'...' if len(output) > 1000 else ''}\n"
+                        elif isinstance(output, dict) and output.get("text"):
+                            text = output["text"]
+                            previous_work_context += f"   DATA: {text[:1000]}{'...' if len(text) > 1000 else ''}\n"
+                    
+                    # If there are files, mention them
+                    if res.data.get("files"):
+                        previous_work_context += f"   Files: {', '.join(res.data['files'])}\n"
+                    
+                    # Include any other relevant data fields
+                    for key, value in res.data.items():
+                        if key not in ["output", "files", "task_complete", "steps", "final_action"] and value:
+                            if isinstance(value, str) and len(value) < 200:
+                                previous_work_context += f"   {key}: {value}\n"
 
         actions_list = "\n".join([f"- {action.value}" for action in GUIActionType])
 
@@ -412,9 +437,10 @@ GUIDELINES:
 • Use open_app with app name (e.g., "Calculator") to launch apps - don't click icons
 • Use accessibility identifiers when available (100% accurate)
 • For typing: type full expressions, use "\\n" for Enter key
+• **CRITICAL**: If previous work has DATA, USE THE ACTUAL DATA - NEVER type placeholders like "[Insert data here]"
+• Extract specific values from PREVIOUS WORK & DATA section and type them exactly
 • Check your history - don't repeat failed actions
 • If stuck or can't proceed → set is_complete and explain
-• If you're going to type text, always just copy the content and paste it in, don't type it out yourself
 
 What's the next action to make progress on the task?
 """

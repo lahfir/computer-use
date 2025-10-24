@@ -14,7 +14,7 @@ from .utils.coordinate_validator import CoordinateValidator
 from .tools.platform_registry import PlatformToolRegistry
 from .schemas.actions import ActionResult
 from .schemas.workflow import WorkflowContext, AgentResult, WorkflowResult
-from .utils.ui import console
+from .utils.ui import console, print_agent_start, print_handoff
 import yaml
 
 if TYPE_CHECKING:
@@ -153,17 +153,33 @@ class ComputerUseCrew:
             iteration += 1
 
             decision = await self.coordinator_agent.decide_next_action(task, context)
+            
+            # Show coordinator decision
+            console.print()
+            console.print(f"[bold magenta]🧠 Coordinator → Step {iteration}[/bold magenta]")
+            console.print(f"  [cyan]Agent:[/cyan] [bold white]{decision.agent.upper()}[/bold white]")
+            console.print(f"  [cyan]Task:[/cyan] {decision.subtask}")
+            console.print(f"  [dim]Reasoning: {decision.reasoning}[/dim]")
 
             if decision.is_complete:
-                console.print("[green]✓ Done[/green]")
+                console.print()
+                console.print("[green]━━━ Workflow Complete ━━━[/green]")
+                console.print("[green]✓ All tasks finished successfully[/green]")
                 context.completed = True
                 break
 
-            console.print(
-                f"\n[bold cyan]Step {iteration}:[/bold cyan] {decision.agent}"
-            )
-            console.print(f"  [dim]Task:[/dim] {decision.subtask}")
-            console.print(f"  [dim]Reasoning:[/dim] {decision.reasoning}")
+            # Show handoff if switching agents
+            if context.agent_results:
+                last_agent = context.agent_results[-1].agent
+                if last_agent != decision.agent:
+                    print_handoff(
+                        last_agent.upper(),
+                        decision.agent.upper(),
+                        f"Switching to {decision.agent} agent for next subtask"
+                    )
+
+            # Show agent execution start
+            print_agent_start(decision.agent.upper())
 
             agent = agents_map.get(decision.agent)
             if not agent:
