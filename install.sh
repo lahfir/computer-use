@@ -53,7 +53,7 @@ print_warning() {
 print_step() {
     echo ""
     echo -e "${CYAN}${GEAR}  $1${NC}"
-    echo -e "${CYAN}${'─'$(printf '─%.0s' {1..60})}${NC}"
+    echo -e "${CYAN}────────────────────────────────────────────────────────────${NC}"
 }
 
 # Detect OS
