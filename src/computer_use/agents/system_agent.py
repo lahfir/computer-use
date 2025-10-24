@@ -3,11 +3,14 @@ System agent that uses shell commands dynamically.
 LLM generates commands iteratively based on output.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TYPE_CHECKING
 import subprocess
 from pydantic import BaseModel, Field
 from ..schemas.actions import ActionResult
 from ..utils.ui import print_info, print_success, print_failure, console
+
+if TYPE_CHECKING:
+    from ..schemas.workflow import WorkflowContext
 
 
 class ShellCommand(BaseModel):
@@ -53,7 +56,7 @@ class SystemAgent:
         self.command_history = []
 
     async def execute_task(
-        self, task: str, context: dict[str, Any] | None = None
+        self, task: str, context: "WorkflowContext | None" = None
     ) -> ActionResult:
         """
         Execute task by generating shell commands iteratively.

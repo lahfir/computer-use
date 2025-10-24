@@ -2,8 +2,11 @@
 Browser agent for web automation using Browser-Use.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING
 from ..schemas.actions import ActionResult
+
+if TYPE_CHECKING:
+    from ..schemas.workflow import WorkflowContext
 
 
 class BrowserAgent:
@@ -23,7 +26,7 @@ class BrowserAgent:
         self.browser_tool = tool_registry.get_tool("browser")
 
     async def execute_task(
-        self, task: str, url: str | None = None, context: dict[str, Any] | None = None
+        self, task: str, url: str | None = None, context: "WorkflowContext | None" = None
     ) -> ActionResult:
         """
         Execute web automation task.
@@ -61,16 +64,12 @@ you've succeeded! Call done() and describe what you gathered.
 
         enhanced_task = handoff_guidelines + "\n\n"
 
-        if context and context.get("previous_results"):
-            prev_results = context.get("previous_results", [])
-            if prev_results:
-                context_info = "CONTEXT - Previous work done:\n"
-                for res in prev_results:
-                    agent_type = res.get("method_used", "unknown")
-                    action = res.get("action_taken", "")
-                    success = "✅" if res.get("success") else "❌"
-                    context_info += f"{success} {agent_type}: {action}\n"
-                enhanced_task += context_info + "\n\n"
+        if context and context.agent_results:
+            context_info = "CONTEXT - Previous work:\n"
+            for res in context.agent_results:
+                success = "✅" if res.success else "❌"
+                context_info += f"{success} {res.agent}: {res.subtask}\n"
+            enhanced_task += context_info + "\n\n"
 
         enhanced_task += f"YOUR TASK: {task}"
 

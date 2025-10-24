@@ -18,6 +18,7 @@ import asyncio
 if TYPE_CHECKING:
     from ..tools.platform_registry import PlatformToolRegistry
     from langchain_core.language_models import BaseChatModel
+    from ..schemas.workflow import WorkflowContext
 
 
 class GUIActionType(str, Enum):
@@ -87,10 +88,10 @@ class GUIAgent:
         self.max_steps: int = 15
         self.current_app: Optional[str] = None
         self.action_history: List[Dict[str, Any]] = []
-        self.context: Dict[str, Any] = {}
+        self.context: "WorkflowContext | None" = None
 
     async def execute_task(
-        self, task: str, context: dict[str, Any] | None = None
+        self, task: str, context: "WorkflowContext | None" = None
     ) -> ActionResult:
         """
         Execute GUI task using screenshot-driven loop.
@@ -103,7 +104,7 @@ class GUIAgent:
         Returns:
             ActionResult with execution details
         """
-        self.context = context or {}
+        self.context = context
         step = 0
         task_complete = False
         last_action = None
@@ -152,7 +153,9 @@ class GUIAgent:
                 self.action_history,
             )
 
-            console.print(f"   [dim]{action.action.value}[/dim] → {action.target}")
+            console.print(f"  [cyan]→ {action.action.value}[/cyan] [white]{action.target}[/white]")
+            if action.reasoning:
+                console.print(f"    [dim]{action.reasoning}[/dim]")
 
             if len(self.action_history) >= 4:
                 recent = self.action_history[-4:]
@@ -338,21 +341,15 @@ class GUIAgent:
                     accessibility_context += f"• {identifier} ({role})\n"
 
         previous_work_context = ""
-        if self.context and self.context.get("agent_results"):
-            results = self.context.get("agent_results", [])
-            if results:
-                previous_work_context = "\n\nPREVIOUS WORK:\n"
-                for res in results:
-                    agent = res.get("agent", "")
-                    subtask = res.get("subtask", "")
-                    success = "✅" if res.get("success") else "❌"
-                    previous_work_context += f"{success} {agent}: {subtask}\n"
-                    if res.get("data"):
-                        data = res.get("data")
-                        if isinstance(data, dict) and data.get("files"):
-                            previous_work_context += (
-                                f"   Files: {', '.join(data['files'])}\n"
-                            )
+        if self.context and self.context.agent_results:
+            previous_work_context = "\n\nPREVIOUS WORK:\n"
+            for res in self.context.agent_results:
+                success = "✅" if res.success else "❌"
+                previous_work_context += f"{success} {res.agent}: {res.subtask}\n"
+                if res.data and isinstance(res.data, dict) and res.data.get("files"):
+                    previous_work_context += (
+                        f"   Files: {', '.join(res.data['files'])}\n"
+                    )
 
         actions_list = "\n".join([f"- {action.value}" for action in GUIActionType])
 

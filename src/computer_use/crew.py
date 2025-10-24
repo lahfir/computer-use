@@ -147,16 +147,16 @@ class ComputerUseCrew:
                 context.completed = True
                 break
 
-            console.print(
-                f"[dim]{iteration}.[/dim] {decision.agent} → {decision.subtask}"
-            )
+            console.print(f"\n[bold cyan]Step {iteration}:[/bold cyan] {decision.agent}")
+            console.print(f"  [dim]Task:[/dim] {decision.subtask}")
+            console.print(f"  [dim]Reasoning:[/dim] {decision.reasoning}")
 
             agent = agents_map.get(decision.agent)
             if not agent:
                 break
 
             result: ActionResult = await agent.execute_task(
-                decision.subtask, context=context.model_dump()
+                decision.subtask, context=context
             )
 
             agent_result = AgentResult(
