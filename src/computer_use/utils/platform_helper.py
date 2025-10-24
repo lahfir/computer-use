@@ -153,3 +153,68 @@ class PlatformHelper:
             capture_output=capture_output,
             text=True,
         )
+
+    def get_shell_command_guidelines(self) -> str:
+        """
+        Get platform-specific shell command guidelines for LLM.
+
+        Returns:
+            Guidelines string for the current platform
+        """
+        if self.os_type == "darwin":
+            return self._get_macos_guidelines()
+        elif self.os_type == "windows":
+            return self._get_windows_guidelines()
+        else:
+            return self._get_linux_guidelines()
+
+    def _get_macos_guidelines(self) -> str:
+        """
+        Get macOS-specific shell command guidelines.
+        """
+        return """MACOS COMMANDS:
+• List files: ls ~/Documents
+• Copy: cp source dest
+• Move: mv source dest  
+• Delete: rm file (USE WITH CAUTION)
+• Find files: find ~/Documents -name "*.txt"
+• Open with default app: open file.pdf
+• Open application: open -a "Calculator"
+• Create directory: mkdir ~/new_folder
+• View file: cat file.txt
+• Search in files: grep "text" file.txt
+• Get file info: ls -lh file.txt"""
+
+    def _get_windows_guidelines(self) -> str:
+        """
+        Get Windows-specific shell command guidelines.
+        """
+        return """WINDOWS COMMANDS:
+• List files: dir %USERPROFILE%\\Documents
+• Copy: copy source dest
+• Move: move source dest
+• Delete: del file (USE WITH CAUTION)
+• Find files: where /r %USERPROFILE%\\Documents *.txt
+• Open with default app: start file.pdf
+• Open application: start calculator
+• Create directory: mkdir new_folder
+• View file: type file.txt
+• Search in files: findstr "text" file.txt
+• Get file info: dir file.txt"""
+
+    def _get_linux_guidelines(self) -> str:
+        """
+        Get Linux-specific shell command guidelines.
+        """
+        return """LINUX COMMANDS:
+• List files: ls ~/Documents
+• Copy: cp source dest
+• Move: mv source dest
+• Delete: rm file (USE WITH CAUTION)
+• Find files: find ~/Documents -name "*.txt"
+• Open with default app: xdg-open file.pdf
+• Open application: application-name &
+• Create directory: mkdir ~/new_folder
+• View file: cat file.txt
+• Search in files: grep "text" file.txt
+• Get file info: ls -lh file.txt"""

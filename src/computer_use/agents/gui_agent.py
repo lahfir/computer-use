@@ -370,6 +370,7 @@ GUIDELINES:
 • For typing: type full expressions, use "\\n" for Enter key
 • Check your history - don't repeat failed actions
 • If stuck or can't proceed → set is_complete and explain
+• If you're going to type text, always just copy the content and paste it in, don't type it out yourself
 
 What's the next action to make progress on the task?
 """

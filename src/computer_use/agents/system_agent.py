@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import subprocess
 from ..schemas.actions import ActionResult, CommandResult, ShellCommand
 from ..utils.ui import print_info, print_success, print_failure, console
+from ..utils.platform_helper import PlatformHelper
 
 if TYPE_CHECKING:
     from ..schemas.workflow import WorkflowContext
@@ -32,6 +33,7 @@ class SystemAgent:
         self.llm_client = llm_client
         self.max_steps = 10
         self.command_history = []
+        self.platform_helper = PlatformHelper()
 
     async def execute_task(
         self, task: str, context: "WorkflowContext | None" = None
@@ -177,20 +179,16 @@ TASK: {task}
         if last_output:
             prompt += f"\nLAST OUTPUT:\n{last_output}\n"
 
+        platform_guidelines = self.platform_helper.get_shell_command_guidelines()
+
         prompt += f"""
+{platform_guidelines}
+
 GUIDELINES:
 1. Generate ONE command to progress toward the goal
-2. Common commands:
-   - ls ~/Documents (see what's there)
-   - cp source dest (copy files)
-   - mv source dest (move files)
-   - open file (open with default app)
-   - find ~/Documents -name "*.png" (search for files)
-
+2. Use the platform-specific commands above
 3. If task needs GUI interaction (e.g., edit file content), set needs_handoff=true
-
 4. Set is_complete=true when task is fully done
-
 5. Use full paths (~/Documents, ~/Downloads, etc.)
 
 CURRENT STEP: {step}
