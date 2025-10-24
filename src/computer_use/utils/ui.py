@@ -177,6 +177,47 @@ def print_warning(message: str):
     console.print(f"  [yellow]⚠️  {message}[/yellow]")
 
 
+def print_tool_execution(
+    tool_name: str,
+    method: str,
+    details: dict,
+    success: bool = True,
+):
+    """
+    Display beautiful tool execution UI with essential information.
+
+    Args:
+        tool_name: Name of tool (Accessibility, OCR, Process, Input)
+        method: Specific method used
+        details: Dictionary with execution details (target, coordinates, engine, etc.)
+        success: Whether execution succeeded
+    """
+
+    status_icon = "✓" if success else "✗"
+    status_color = "green" if success else "red"
+
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column(style="cyan", width=12)
+    table.add_column(style="white")
+
+    # Tool and method
+    table.add_row("Tool", f"[bold]{tool_name}[/bold]")
+    table.add_row("Method", method)
+
+    # Add all details
+    for key, value in details.items():
+        if value is not None:
+            table.add_row(key, str(value))
+
+    panel = Panel(
+        table,
+        title=f"[{status_color}]{status_icon} Tool Execution[/{status_color}]",
+        border_style=status_color,
+        padding=(0, 1),
+    )
+    console.print(panel)
+
+
 def print_command_approval(command: str) -> str:
     """
     Display command approval request.

@@ -13,7 +13,7 @@ AgentType = Literal["browser", "gui", "system"]
 class AgentResult(BaseModel):
     """
     Result from a single agent execution.
-    Lightweight summary for workflow context - NO handoff fields (handled immediately by crew).
+    Includes minimal handoff info so coordinator can see handoff requests.
     """
 
     agent: AgentType = Field(description="Agent type that executed")
@@ -23,6 +23,15 @@ class AgentResult(BaseModel):
         default=None, description="Typed result data from agent"
     )
     error: Optional[str] = Field(default=None, description="Error if failed")
+    handoff_requested: bool = Field(
+        default=False, description="Whether agent requested handoff"
+    )
+    suggested_agent: Optional[AgentType] = Field(
+        default=None, description="Agent suggested for handoff"
+    )
+    handoff_reason: Optional[str] = Field(
+        default=None, description="Why handoff was requested"
+    )
 
 
 class WorkflowContext(BaseModel):

@@ -172,6 +172,27 @@ class ComputerUseCrew:
                 context.completed = True
                 break
 
+            # LOOP DETECTION: Check if we're repeating the same subtask
+            if len(context.agent_results) >= 2:
+                last_two_tasks = [r.subtask.lower() for r in context.agent_results[-2:]]
+                current_task_lower = decision.subtask.lower()
+
+                # Check for repetition (similar tasks)
+                if any(
+                    (current_task_lower in prev_task or prev_task in current_task_lower)
+                    for prev_task in last_two_tasks
+                ):
+                    console.print(
+                        "\n[yellow]⚠️  Loop detected: Coordinator is repeating similar subtasks![/yellow]"
+                    )
+                    console.print(f"[yellow]Previous: {last_two_tasks}[/yellow]")
+                    console.print(f"[yellow]Current: {decision.subtask}[/yellow]")
+                    console.print(
+                        "[yellow]Stopping workflow - task likely complete or stuck[/yellow]"
+                    )
+                    context.completed = True
+                    break
+
             # Show handoff if switching agents
             if context.agent_results:
                 last_agent = context.agent_results[-1].agent
@@ -193,13 +214,15 @@ class ComputerUseCrew:
                 decision.subtask, context=context
             )
 
-            # Store lightweight summary in context (NO handoff - that's handled immediately below)
             agent_result = AgentResult(
                 agent=decision.agent,
                 subtask=decision.subtask,
                 success=result.success,
                 data=result.data if result.success else None,
                 error=result.error if not result.success else None,
+                handoff_requested=result.handoff_requested,
+                suggested_agent=result.suggested_agent,
+                handoff_reason=result.handoff_reason,
             )
             context.agent_results.append(agent_result)
 

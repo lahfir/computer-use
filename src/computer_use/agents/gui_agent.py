@@ -69,6 +69,10 @@ class GUIAction(BaseModel):
     )
     reasoning: str = Field(description="Why taking this action")
     is_complete: bool = Field(default=False, description="Is the task complete?")
+    observed_data: Optional[str] = Field(
+        default=None,
+        description="Important data observed on screen (e.g., calculation result, extracted text) - CRITICAL for passing data to next steps!",
+    )
 
 
 class GUIAgent:
@@ -123,6 +127,7 @@ class GUIAgent:
 
         while step < self.max_steps and not task_complete:
             step += 1
+            console.print(f"\n[bold blue]Step {step}[/bold blue]")
 
             should_activate = True
             if last_action and last_action.action in [
@@ -137,6 +142,7 @@ class GUIAgent:
                     process_tool.launch_app(self.current_app)
                     await asyncio.sleep(0.3)
 
+            console.print("\n[dim]  📸 Analyzing screenshot...[/dim]")
             screenshot_tool = self.tool_registry.get_tool("screenshot")
             screenshot = screenshot_tool.capture()
 
@@ -150,6 +156,7 @@ class GUIAgent:
                         )
                     )
 
+            console.print("[dim]  🤖 Asking LLM for next action...[/dim]")
             action = await self._analyze_screenshot(
                 task,
                 screenshot,
@@ -263,7 +270,6 @@ class GUIAgent:
             else:
                 consecutive_failures = 0
 
-                # Show method used and execution details
                 method = step_result.method or "unknown"
                 method_display = {
                     "accessibility": "[green]✓ Accessibility API[/green] (100% accurate)",
@@ -298,54 +304,67 @@ class GUIAgent:
 
                     last_coordinates = current_coords
 
-                if step_result.data:
-                    data_obj = step_result.data
-                    if isinstance(data_obj, dict):
-                        if data_obj.get("text"):
-                            console.print(
-                                f"    [dim]Text: {data_obj['text'][:50]}...[/dim]"
-                            )
-                    elif isinstance(data_obj, str) and len(data_obj) < 100:
-                        console.print(f"    [dim]Output: {data_obj}[/dim]")
-
             last_action = action
             task_complete = action.is_complete
 
-            if not task_complete:
+            if task_complete:
+                console.print("[dim]  ✓ LLM marked task as complete[/dim]")
+            else:
                 await asyncio.sleep(0.5)
 
-        if task_complete:
-            # Print professional summary
-            console.print()
-            console.print("[green]━━━ Task Summary ━━━[/green]")
-            console.print(f"  [green]✓[/green] Steps completed: [white]{step}[/white]")
-            console.print(
-                f"  [green]✓[/green] Application: [white]{self.current_app or 'N/A'}[/white]"
-            )
+            if task_complete:
+                final_output = None
+                extracted_text = None
 
-            # Count methods used
-            methods_used = set()
-            for h in self.action_history:
-                if h.success and h.method:
-                    methods_used.add(h.method)
-            if methods_used:
-                methods_str = ", ".join(sorted(methods_used))
+                if last_action and last_action.observed_data:
+                    final_output = last_action.observed_data
+                    extracted_text = last_action.observed_data
+
+                elif (
+                    last_action
+                    and last_action.action == GUIActionType.TYPE
+                    and last_action.input_text
+                ):
+                    final_output = last_action.input_text
+
+                console.print()
+                console.print("[green]━━━ Task Summary ━━━[/green]")
                 console.print(
-                    f"  [green]✓[/green] Methods: [white]{methods_str}[/white]"
+                    f"  [green]✓[/green] Steps completed: [white]{step}[/white]"
                 )
-            console.print()
+                console.print(
+                    f"  [green]✓[/green] Application: [white]{self.current_app or 'N/A'}[/white]"
+                )
 
-            return ActionResult(
-                success=True,
-                action_taken=f"Completed task in {step} steps",
-                method_used="screenshot_loop",
-                confidence=0.95,
-                data=GUIResultData(
-                    steps=step,
-                    final_action=last_action.action.value if last_action else None,
-                    task_complete=True,
-                ),
-            )
+                methods_used = set()
+                for h in self.action_history:
+                    if h.success and h.method:
+                        methods_used.add(h.method)
+                if methods_used:
+                    methods_str = ", ".join(sorted(methods_used))
+                    console.print(
+                        f"  [green]✓[/green] Methods: [white]{methods_str}[/white]"
+                    )
+
+                if final_output:
+                    console.print(
+                        f"  [green]✓[/green] Result: [white]{final_output}[/white]"
+                    )
+                console.print()
+
+                return ActionResult(
+                    success=True,
+                    action_taken=f"Completed task in {step} steps",
+                    method_used="screenshot_loop",
+                    confidence=0.95,
+                    data=GUIResultData(
+                        steps=step,
+                        final_action=last_action.action.value if last_action else None,
+                        task_complete=True,
+                        final_output=final_output,
+                        text=extracted_text,
+                    ),
+                )
         else:
             console.print()
             console.print("[red]━━━ Task Failed ━━━[/red]")
@@ -455,11 +474,25 @@ Step: {step}{last_action_text}{history_context}{previous_work_context}{accessibi
 AVAILABLE ACTIONS:
 {actions_list}
 
-GUIDELINES:
+CRITICAL INTELLIGENCE GUIDELINES:
 • Use open_app with app name (e.g., "Calculator") to launch apps - don't click icons
 • Use accessibility identifiers when available (100% accurate)
 • For typing: type full expressions, use "\\n" for Enter key
-• **CRITICAL**: If previous work has DATA, USE THE ACTUAL DATA - NEVER type placeholders like "[Insert data here]"
+
+🧠 BE SMART ABOUT APP STATE:
+• **LOOK AT WHAT'S CURRENTLY ON SCREEN** - Don't assume clean slate!
+• **See old data/results displayed?** → Clear it FIRST before starting new task
+  - Figure out HOW to clear based on what you see (button, menu, keyboard shortcut, etc.)
+• **App already has content?** → Reset/clear it BEFORE adding new content
+• **Always check current state before acting** - adapt your approach accordingly
+
+🚨 CRITICAL - CAPTURE DATA:
+• **See important data on screen?** (calculation result, text, number, etc.) → FILL observed_data field!
+• This data will be passed to next steps/agents - DON'T lose it!
+• Example: Calculator shows "1589" → observed_data: "1589"
+• Example: Reading document → observed_data: "extracted text content"
+
+• **CRITICAL**: If previous work has DATA, USE THE ACTUAL DATA - NEVER type placeholders
 • Extract specific values from PREVIOUS WORK & DATA section and type them exactly
 • Check your history - don't repeat failed actions
 • If stuck or can't proceed → set is_complete and explain
@@ -568,6 +601,7 @@ What's the next action to make progress on the task?
             if success:
                 self.current_app = app_name
                 await self._wait_for_app_ready(app_name)
+
             return ActionExecutionResult(success=success, method="process")
         except Exception as e:
             return ActionExecutionResult(success=False, method="process", error=str(e))
@@ -658,8 +692,6 @@ What's the next action to make progress on the task?
 
         accessibility_tool = self.tool_registry.get_tool("accessibility")
         if accessibility_tool and accessibility_tool.available:
-            console.print("    [cyan]TIER 1:[/cyan] Accessibility API")
-
             if hasattr(accessibility_tool, "click_element"):
                 clicked, element = accessibility_tool.click_element(
                     target, self.current_app
@@ -674,7 +706,6 @@ What's the next action to make progress on the task?
                         confidence=1.0,
                     )
                 elif element:
-                    print("    ⚠️  Native click failed, using element coordinates...")
                     try:
                         pos = element.AXPosition
                         size = element.AXSize
@@ -682,9 +713,6 @@ What's the next action to make progress on the task?
                         y = int(pos[1] + size[1] / 2)
 
                         identifier = getattr(element, "AXIdentifier", target)
-                        print(
-                            f"    ✅ Found '{identifier}' at ({x}, {y}) via accessibility"
-                        )
 
                         input_tool = self.tool_registry.get_tool("input")
                         success = input_tool.click(x, y, validate=True)
@@ -695,8 +723,8 @@ What's the next action to make progress on the task?
                             matched_text=identifier,
                             confidence=1.0,
                         )
-                    except Exception as e:
-                        print(f"    ⚠️  Could not get element coordinates: {e}")
+                    except Exception:
+                        pass
 
             elements = accessibility_tool.find_elements(
                 label=target, app_name=self.current_app
@@ -705,7 +733,6 @@ What's the next action to make progress on the task?
             if elements:
                 elem = elements[0]
                 x, y = elem["center"]
-                print(f"    ✅ Found '{elem['title']}' at ({x}, {y}) via accessibility")
 
                 input_tool = self.tool_registry.get_tool("input")
                 success = input_tool.click(x, y, validate=True)
@@ -716,12 +743,7 @@ What's the next action to make progress on the task?
                     matched_text=elem["title"],
                     confidence=1.0,
                 )
-            else:
-                console.print("    [dim]Element not found in accessibility tree[/dim]")
-        else:
-            console.print("    [dim]Accessibility unavailable[/dim]")
 
-        console.print("    [cyan]TIER 2:[/cyan] OCR")
         ocr_tool = self.tool_registry.get_tool("ocr")
         screenshot_tool = self.tool_registry.get_tool("screenshot")
         scaling = getattr(screenshot_tool, "scaling_factor", 1.0)
@@ -757,12 +779,9 @@ What's the next action to make progress on the task?
                 x_screen = int(x_raw / scaling) + x_offset
                 y_screen = int(y_raw / scaling) + y_offset
 
-                console.print(
-                    f"    [green]Found[/green] '{element.text}' at ({x_screen}, {y_screen})"
-                )
-
                 input_tool = self.tool_registry.get_tool("input")
                 success = input_tool.click(x_screen, y_screen, validate=True)
+
                 return ActionExecutionResult(
                     success=success,
                     method="ocr",

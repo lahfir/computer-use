@@ -6,6 +6,7 @@ import psutil
 import subprocess
 import platform
 from typing import List, Dict, Optional
+from ..utils.ui import print_tool_execution, console
 
 
 class ProcessTool:
@@ -106,7 +107,19 @@ class ProcessTool:
         Returns:
             Dictionary with success status and message
         """
-        success = self.launch_app(app_name)
+        with console.status(f"[cyan]Opening {app_name}...[/cyan]", spinner="dots"):
+            success = self.launch_app(app_name)
+
+        print_tool_execution(
+            tool_name="Process Manager",
+            method="open_application",
+            details={
+                "Application": app_name,
+                "Status": "Launched" if success else "Failed",
+            },
+            success=success,
+        )
+
         return {
             "success": success,
             "message": (

@@ -5,7 +5,7 @@ macOS Accessibility API using atomacos for 100% accurate element interaction.
 from typing import List, Optional, Dict, Any
 import platform
 
-from ...utils.ui import print_success, print_warning, print_info, console
+from ...utils.ui import print_success, print_warning, print_info, print_tool_execution
 
 
 class MacOSAccessibility:
@@ -73,15 +73,24 @@ class MacOSAccessibility:
             element = self._find_element(app, label)
 
             if element:
-                identifier = getattr(element, "AXIdentifier", "N/A")
-                console.print(f"    [dim]Found: {identifier}[/dim]")
+                identifier = getattr(element, "AXIdentifier", label)
 
                 try:
                     self._perform_click(element)
-                    print_success(f"Clicked '{identifier}' via Accessibility")
+                    print_tool_execution(
+                        tool_name="Accessibility API",
+                        method="Native Click",
+                        details={"Target": identifier, "Accuracy": "100%"},
+                        success=True,
+                    )
                     return (True, element)
                 except Exception as e:
-                    print_warning(f"Native click failed: {e}")
+                    print_tool_execution(
+                        tool_name="Accessibility API",
+                        method="Native Click",
+                        details={"Target": identifier, "Error": str(e)},
+                        success=False,
+                    )
                     return (False, element)
 
             return (False, None)
@@ -226,14 +235,8 @@ class MacOSAccessibility:
             app = self._get_app(app_name)
             windows = self._get_app_windows(app)
 
-            console.print(
-                f"    [dim]Searching {len(windows)} window(s) for '{label}'[/dim]"
-            )
-
             for window in windows:
                 self._traverse_and_collect(window, label, role, elements)
-
-            console.print(f"  [green]Found {len(elements)} elements[/green]")
 
         except Exception:
             pass
