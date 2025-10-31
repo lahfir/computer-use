@@ -14,6 +14,7 @@ from .utils.ui import (
     print_platform_info,
     print_section_header,
     print_task_result,
+    get_task_input,
     console,
 )
 from .crew import ComputerUseCrew
@@ -80,9 +81,7 @@ async def main():
 
     while True:
         try:
-            task = console.input(
-                "\n[bold cyan]💬 Enter task (or 'quit' to exit):[/bold cyan] "
-            ).strip()
+            task = await get_task_input()
 
             if not task:
                 continue

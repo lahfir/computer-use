@@ -1,13 +1,49 @@
 """
-Professional terminal UI using rich.
+Professional terminal UI using rich and prompt_toolkit.
 """
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich import box
+from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.key_binding import KeyBindings
 
 console = Console()
+
+_key_bindings = KeyBindings()
+
+
+@_key_bindings.add("enter")
+def _(event):
+    """
+    Handle Enter key - submit the input.
+    """
+    event.current_buffer.validate_and_handle()
+
+
+@_key_bindings.add("c-j")
+def _(event):
+    """
+    Handle Ctrl+J - insert newline (alternative for Shift+Enter).
+    """
+    event.current_buffer.insert_text("\n")
+
+
+@_key_bindings.add("escape", "enter")
+def _(event):
+    """
+    Handle Alt/Option+Enter - insert newline.
+    """
+    event.current_buffer.insert_text("\n")
+
+
+_prompt_session = PromptSession(
+    history=None,
+    multiline=True,
+    key_bindings=_key_bindings,
+)
 
 
 def print_banner():
@@ -381,3 +417,36 @@ def print_twilio_config_status(is_configured: bool, phone_number: str = None):
         console.print(
             "[dim]   Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in .env[/dim]"
         )
+
+
+async def get_task_input() -> str:
+    """
+    Get task input from user with proper terminal editing support.
+    Uses prompt_toolkit for readline-like editing with history.
+    Supports multi-line input via Alt+Enter or Ctrl+J.
+
+    Note: Shift+Enter is not reliably distinguishable from Enter in most
+    terminal emulators due to terminal protocol limitations. Alt+Enter
+    (Option+Enter on macOS) provides the same UX and works reliably.
+
+    Returns:
+        User's task input (stripped)
+    """
+    try:
+        console.print()
+        console.print("[#00d7ff]💬 Enter your task:[/]")
+        console.print(
+            "[dim]   Press [cyan]Alt+Enter[/cyan] for new line, [cyan]Enter[/cyan] to submit[/dim]"
+        )
+        console.print()
+
+        prompt_text = FormattedText([("#00d7ff bold", "➤ ")])
+
+        task = await _prompt_session.prompt_async(
+            prompt_text,
+            prompt_continuation=FormattedText([("", "  ")]),
+        )
+
+        return task.strip()
+    except (KeyboardInterrupt, EOFError):
+        return "quit"

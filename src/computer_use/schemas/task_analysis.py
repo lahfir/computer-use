@@ -48,6 +48,10 @@ class TaskAnalysis(BaseModel):
         description="Whether the task needs system/file operations"
     )
     reasoning: str = Field(description="One sentence explanation of classification")
+    direct_response: Optional[str] = Field(
+        default=None,
+        description="Direct response for conversational/informational queries that don't need agent execution",
+    )
     browser_subtask: Optional[AgentSubTask] = Field(
         default=None,
         description="Specific sub-task for browser agent if required",

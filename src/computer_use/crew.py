@@ -21,7 +21,6 @@ from .utils.ui import (
     print_handoff,
     print_warning,
     print_info,
-    console,
 )
 import yaml
 
@@ -196,6 +195,14 @@ class ComputerUseCrew:
         """
         analysis = await self.coordinator_agent.analyze_task(task)
         print_task_analysis(task, analysis)
+
+        if analysis.direct_response:
+            from .utils.ui import console
+
+            console.print()
+            console.print(f"[cyan]🤖 {analysis.direct_response}[/cyan]")
+            console.print()
+            return self._build_result(task, analysis, [], True)
 
         results = []
         context = {"task": task, "previous_results": []}
