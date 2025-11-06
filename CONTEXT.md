@@ -1,6 +1,6 @@
 # Computer Use Agent - Complete Technical Reference
 
-> **Last Updated**: October 20, 2025  
+> **Last Updated**: November 6, 2025  
 > **Purpose**: Comprehensive technical reference for architecture, implementation, and development patterns
 
 ---
@@ -13,10 +13,11 @@
 4. [Agent Implementation](#agent-implementation)
 5. [Inter-Agent Communication](#inter-agent-communication)
 6. [Browser-Use Integration](#browser-use-integration)
-7. [File Structure](#file-structure)
-8. [Configuration](#configuration)
-9. [Development Standards](#development-standards)
-10. [Key Design Decisions](#key-design-decisions)
+7. [Recent Improvements](#recent-improvements)
+8. [File Structure](#file-structure)
+9. [Configuration](#configuration)
+10. [Development Standards](#development-standards)
+11. [Key Design Decisions](#key-design-decisions)
 
 ---
 
@@ -626,6 +627,120 @@ browser_output = BrowserOutput(
     work_directory=str(temp_dir)
 )
 ```
+
+---
+
+## Recent Improvements
+
+### 1. Credential Hallucination Prevention (Nov 2025)
+
+**Problem**: Browser agent sometimes used test data like `test@gmail.com` instead of actual user-provided credentials.
+
+**Solution**: Added explicit anti-hallucination rules at the top of every browser task:
+
+```python
+🚨 CRITICAL RULE #1: USE ONLY PROVIDED CREDENTIALS
+
+✅ Extract EXACT credentials from task
+✅ Use tools if credentials not provided
+❌ NEVER use test@gmail.com or placeholder data
+```
+
+**Impact**: Eliminated authentication failures from credential substitution.
+
+### 2. QR Code Detection & Escalation (Nov 2025)
+
+**Problem**: Agents attempted to automate QR code authentication (impossible).
+
+**Solution**: Immediate human escalation when QR codes detected:
+
+- Detect: Square patterns, "Scan QR code" text, 2FA QR options
+- Action: Call `request_human_help()` immediately with clear instructions
+- Never attempt to "read" or "process" QR codes
+
+**Impact**: Clean handoff for physical authentication requirements.
+
+### 3. Systematic Escalation Protocol (Nov 2025)
+
+**Problem**: Agents got stuck after repeated failures without asking for help.
+
+**Solution**: Two-tier escalation protocol:
+
+- **Immediate Escalation**: QR codes, visual CAPTCHAs, biometrics
+- **After Attempts**: 3+ failures, unexpected page structure, ambiguous choices
+
+**Requirements**:
+
+- Try 2-3 approaches before escalating
+- Explain what was tried and why it failed
+- Provide specific instructions for user
+- Describe current state clearly
+
+**Impact**: Better stuck detection and graceful user escalation.
+
+### 4. Conversation Context & Memory (Nov 2025)
+
+**Problem**: No memory of previous interactions - couldn't answer "What did you just do?".
+
+**Solution**: Rolling 10-interaction conversation history:
+
+```python
+conversation_history = []  # Last 10 user interactions
+
+result = await crew.execute_task(task, conversation_history)
+conversation_history.append({"user": task, "result": result})
+```
+
+**Features**:
+
+- Coordinator analyzes conversation history for context
+- Direct responses for conversational queries (no agent execution)
+- Context-aware follow-up handling
+
+**Impact**: Natural conversation flow, reduced unnecessary agent executions.
+
+### 5. Enhanced Terminal UI (Nov 2025)
+
+**Problem**: No multi-line input, poor editing experience, visual issues.
+
+**Solution**: Upgraded to `prompt_toolkit` with full features:
+
+- **Alt+Enter** / **Ctrl+J**: Insert newline for multi-line tasks
+- **Enter**: Submit task
+- **Full line editing**: Arrow keys, backspace, home/end, history
+- **Professional styling**: Clean borders, clear instructions, emoji support
+
+**Impact**: Better UX for complex multi-line instructions.
+
+### 6. Twilio Integration Independence (Nov 2025)
+
+**Problem**: Twilio webhook initialization tied to browser agent startup.
+
+**Solution**: Independent initialization at app startup:
+
+```python
+# Initialize independently
+twilio_service = TwilioService()
+webhook_server = WebhookServer(twilio_service)
+webhook_server.start()
+
+# Pass to crew
+crew = ComputerUseCrew(..., twilio_service=twilio_service)
+```
+
+**Impact**: Cleaner architecture, webhook ready before any agent runs.
+
+### 7. Phone Verification Intelligence (Nov 2025)
+
+**Enhancement**: Clear decision flow for phone number sources:
+
+1. Check if phone provided in task prompt
+2. If YES → Extract and use exact number
+3. If NO → Call `get_verification_phone_number()` tool
+4. Parse format based on form structure
+5. Get verification code via `get_verification_code()` tool
+
+**Impact**: Flexible phone verification across different scenarios.
 
 ---
 

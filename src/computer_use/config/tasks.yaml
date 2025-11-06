@@ -1,75 +1,60 @@
-analyze_task:
+coordination_task:
   description: >
     Analyze the user's request: "{task}"
 
-    Determine:
-    1. What type of task this is (browser, GUI, system, or hybrid)
-    2. Which agents are needed to accomplish this
-    3. What are the specific steps required
-    4. Estimated complexity and number of actions
+    Conversation History:
+    {conversation_history}
 
-    Provide a structured analysis with clear reasoning.
+    Determine:
+    1. Is this a conversational message or an automation task?
+    2. If conversational: Provide a direct, helpful response
+    3. If automation: Which agents are needed (browser, gui, system)?
+    4. Break down into sub-tasks with clear objectives and expected outputs
+
+    Return your analysis as structured data.
   expected_output: >
-    A TaskAnalysis object with task_type, requirements for each agent type,
-    detailed reasoning, action plan as list of steps, and estimated_steps count.
+    TaskAnalysis with:
+    - direct_response (if conversational)
+    - requires_browser, requires_gui, requires_system (booleans)
+    - Subtasks with objective and expected_output for each agent
   agent: coordinator
 
 browser_task:
   description: >
-    Execute the following browser-based task: "{task}"
-
-    Use Browser-Use to:
-    - Navigate to required websites
-    - Interact with web elements
-    - Extract or download data
-    - Complete the requested action
-
-    Return detailed results of what was accomplished.
+    Call web_automation tool with task parameter: "{browser_subtask}"
+    
+    Context: {context}
   expected_output: >
-    A detailed report of the browser automation including:
-    - Actions taken
-    - URLs visited
-    - Data extracted or files downloaded
-    - Success status
+    Tool execution results
   agent: browser_agent
 
 gui_task:
   description: >
-    Execute the following desktop GUI task: "{task}"
+    Execute this desktop automation task: {gui_subtask}
 
-    Use the multi-tier accuracy system:
-    1. First try accessibility APIs for 100% accuracy
-    2. Fall back to OCR/CV if needed
-    3. Use vision model as last resort
+    Context from previous agents:
+    {context}
 
-    Always validate coordinates before clicking.
-    Take screenshots to verify results.
+    YOU MUST USE YOUR GUI TOOLS - DO NOT provide a text response without using tools!
+
+    Available tools: take_screenshot, click_element, type_text, open_application, read_screen_text, scroll, find_application
+
+    Use these tools to:
+    - Open required applications
+    - Navigate through UI elements
+    - Perform clicks, typing, and other interactions
+    - Use exact file paths from previous agents (don't assume locations)
+
+    Take screenshots, analyze current state, decide next action, repeat until complete.
   expected_output: >
-    An ActionResult object with:
-    - Success status
-    - Method used (accessibility, ocr, cv, or vision)
-    - Actions taken
-    - Confidence level
-    - Any errors encountered
+    Results from tool execution showing steps taken and final state
   agent: gui_agent
 
 system_task:
   description: >
-    Execute the following system operation: "{task}"
-
-    Steps:
-    1. Validate the operation for safety
-    2. Check if confirmation is needed for destructive actions
-    3. Execute the command or file operation
-    4. Verify the result
-
-    Never execute dangerous commands without confirmation.
+    Call execute_shell_command tool to: "{system_subtask}"
+    
+    Context: {context}
   expected_output: >
-    A SystemCommand execution result with:
-    - Command executed
-    - Working directory
-    - Output or result
-    - Success status
-    - Whether confirmation was required
+    Tool execution results
   agent: system_agent
-

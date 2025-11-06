@@ -76,8 +76,8 @@ class LLMConfig:
 
     @staticmethod
     def _get_google_llm(model: Optional[str] = None):
-        """Get Google LLM (Langchain)"""
-        model_name = model or "gemini-2.0-flash-exp"
+        """Get Google LLM (Langchain) with function calling enabled"""
+        model_name = model or "gemini-1.5-pro"
         return ChatGoogleGenerativeAI(
             model=model_name, temperature=0, google_api_key=os.getenv("GOOGLE_API_KEY")
         )

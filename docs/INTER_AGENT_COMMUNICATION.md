@@ -14,6 +14,37 @@ The system features robust inter-agent communication with full type safety:
 
 ## Browser Agent Intelligence
 
+### Critical Rule: Use Only Provided Credentials
+
+**Problem**: LLMs sometimes "hallucinate" test data like `test@gmail.com` instead of using actual credentials.
+
+**Solution**: Explicit instructions at the top of every browser task:
+
+```python
+🚨 CRITICAL RULE #1: USE ONLY PROVIDED CREDENTIALS - NO HALLUCINATIONS
+
+❌ NEVER EVER use test/placeholder data like:
+   - test@gmail.com
+   - test@example.com
+   - placeholder@email.com
+   - 123456 (fake phone numbers)
+   - Any credentials not explicitly provided in the task
+
+✅ ALWAYS use EXACTLY what the user provides:
+   - If task says "use email: user@example.com" → USE user@example.com
+   - If task says "use phone: +1234567890" → USE +1234567890
+   - If credentials are in the task → EXTRACT and USE them verbatim
+   - If credentials NOT in task → Use available tools (get_verification_phone_number, etc.)
+
+🔴 STOP AND READ THE TASK CAREFULLY:
+   → Look for: "use this email", "credentials:", "sign in with", "phone number:"
+   → Extract the EXACT value provided
+   → Do NOT substitute with test data
+   → Do NOT make up placeholder values
+```
+
+**Impact**: Eliminates the #1 cause of authentication failures.
+
 ### Principle-Based Guidelines
 
 The Browser agent operates with clear, generic principles about its role:
@@ -54,6 +85,81 @@ result = await agent.run(max_steps=30)  # Hard limit to prevent infinite loops
 - **Generic**: Applies to any task (census data, downloads, APIs, scraping)
 - **Principle-Based**: Agent reasons about boundaries, not rigid rules
 - **Self-Aware**: Understands its role as a specialist, not generalist
+
+### QR Code Detection & Handling
+
+**Problem**: QR codes require physical device scanning - automation cannot solve them.
+
+**Solution**: Immediate human escalation when QR codes are detected:
+
+```python
+📱 QR CODE INTELLIGENCE
+
+Detection Signals:
+- Images containing square QR code patterns
+- Text like "Scan QR code", "Use your phone to scan"
+- Two-factor authentication with QR option
+- Login pages offering "Scan with mobile app"
+- Account linking with QR authentication
+
+Action:
+→ QR CODE DETECTED: IMMEDIATELY call request_human_help
+→ No automation possible - requires physical phone/device
+
+Example:
+request_human_help(
+    reason="QR code authentication required",
+    instructions="Please scan the QR code displayed on screen with your mobile device to proceed"
+)
+
+Critical Rules:
+✅ Detect QR codes early (check page content after navigation)
+✅ Call for help IMMEDIATELY when QR code is the only option
+✅ Provide clear instructions (what to scan, where it is)
+✅ Wait for user confirmation before proceeding
+❌ NEVER try to "read" or "process" QR codes yourself
+❌ NEVER skip QR code steps - they're security checkpoints
+```
+
+### Escalation Protocol: When to Request Human Help
+
+**Problem**: Agents can get stuck after multiple failed attempts.
+
+**Solution**: Systematic escalation protocol with clear criteria:
+
+```python
+🆘 ESCALATION PROTOCOL
+
+IMMEDIATE ESCALATION (Don't even try):
+→ QR codes detected (physical device required)
+→ Visual CAPTCHA challenges (image puzzles, traffic lights)
+→ Biometric authentication (fingerprint, face recognition)
+→ Physical security keys (YubiKey, hardware tokens)
+
+ESCALATE AFTER ATTEMPTS (Tried multiple approaches):
+→ Tried 3+ different approaches, all failed
+→ Page structure completely unexpected/broken
+→ Critical blocker with no programmatic solution
+→ Ambiguous choices requiring human judgment
+→ Verification steps that need out-of-band information
+
+GOOD ESCALATION REQUEST:
+request_human_help(
+    reason="Stuck after 3 attempts: phone verification not accepting format",
+    instructions="Tried multiple phone number formats (with/without country code). Please manually enter the phone number in the required format on the current page."
+)
+
+BAD ESCALATION:
+request_human_help(reason="Can't find button", instructions="Help")
+
+ESCALATION CHECKLIST:
+✅ Tried at least 2-3 different approaches
+✅ Clearly explained what you tried and why it failed
+✅ Provided specific instructions on what user needs to do
+✅ Explained current state (what page, what's visible)
+❌ Don't escalate on first failure - be resilient first
+❌ Don't escalate without context - explain the situation
+```
 
 ---
 
@@ -471,6 +577,191 @@ error_list = result.errors()
 ```
 
 **No More `hasattr` Checks**: Browser-Use provides clean typed interface.
+
+---
+
+## Conversation Context & Memory
+
+### Problem
+
+Agents had no memory of previous interactions, making them unable to respond to conversational queries like "What did you just do?" or "Can you explain that last step?".
+
+### Solution: Conversation History Tracking
+
+The system now maintains a rolling window of the last 10 user interactions and their results:
+
+```python
+# In main.py
+conversation_history = []
+
+while True:
+    task = await get_task_input()
+
+    # Execute with conversation context
+    result = await crew.execute_task(task, conversation_history)
+
+    # Store interaction
+    conversation_history.append({"user": task, "result": result})
+
+    # Keep last 10 interactions
+    if len(conversation_history) > 10:
+        conversation_history = conversation_history[-10:]
+```
+
+### Coordinator Agent Integration
+
+The coordinator agent analyzes conversation history to provide contextual responses:
+
+```python
+async def analyze_task(self, task: str, conversation_history: list = None) -> TaskAnalysis:
+    """
+    Analyze task with conversation context.
+
+    Args:
+        task: Current user request
+        conversation_history: Last 10 interactions for context
+    """
+    if conversation_history:
+        history_context = "\n\nConversation History (for context):\n"
+        for i, entry in enumerate(conversation_history[-5:], 1):
+            user_msg = entry.get("user", "")
+            result = entry.get("result", {})
+            analysis = result.get("analysis", {})
+            direct_resp = (
+                analysis.get("direct_response")
+                if isinstance(analysis, dict)
+                else None
+            )
+
+            history_context += f"{i}. User: {user_msg}\n"
+            if direct_resp:
+                history_context += f"   Agent: {direct_resp}\n"
+```
+
+### Direct Response for Conversational Queries
+
+When a query is conversational (not an automation task), the coordinator provides a direct response:
+
+```python
+class TaskAnalysis(BaseModel):
+    """Task analysis with direct response support."""
+
+    direct_response: Optional[str] = Field(
+        default=None,
+        description="Direct response for conversational/informational queries that don't need agent execution"
+    )
+```
+
+**Example Flow**:
+
+```
+User: "Download image of Ronaldo"
+→ Executes browser agent
+
+User: "What did you just download?"
+→ Direct response: "I downloaded a high-resolution image of Cristiano Ronaldo..."
+   (No agent execution needed)
+```
+
+**Benefits**:
+
+- Natural conversation flow
+- Context-aware responses
+- Reduced unnecessary agent executions
+- Better user experience
+
+---
+
+## User Interface Improvements
+
+### Multi-Line Input Support
+
+**Problem**: Users couldn't input multi-line tasks or complex instructions easily.
+
+**Solution**: Enhanced terminal input with `prompt_toolkit`:
+
+```python
+from prompt_toolkit import PromptSession
+from prompt_toolkit.key_binding import KeyBindings
+
+# Key bindings
+_key_bindings = KeyBindings()
+
+@_key_bindings.add("enter")
+def _(event):
+    """Submit input."""
+    event.current_buffer.validate_and_handle()
+
+@_key_bindings.add("escape", "enter")
+def _(event):
+    """Insert newline (Alt+Enter)."""
+    event.current_buffer.insert_text("\n")
+
+@_key_bindings.add("c-j")
+def _(event):
+    """Insert newline (Ctrl+J - alternative)."""
+    event.current_buffer.insert_text("\n")
+
+# Prompt session
+_prompt_session = PromptSession(
+    history=None,
+    multiline=True,
+    key_bindings=_key_bindings,
+)
+```
+
+### User Experience
+
+```
+💬 Enter your task:
+   Press Alt+Enter for new line, Enter to submit
+
+➤ Sign up to website with these details:
+  Email: user@example.com
+  Phone: +1234567890
+  Password: SecurePass123!
+```
+
+**Key Features**:
+
+- **Alt+Enter**: Insert newline for multi-line input
+- **Ctrl+J**: Alternative newline (more compatible across terminals)
+- **Enter**: Submit task
+- **History**: Input history with up/down arrows
+- **Editing**: Full line editing capabilities (backspace, arrow keys, home/end)
+
+### Professional Styling
+
+```python
+async def get_task_input() -> str:
+    """
+    Get user input with enhanced terminal UI.
+
+    Supports multi-line input via Alt+Enter or Ctrl+J.
+    """
+    console.print()
+    console.print("[#00d7ff]💬 Enter your task:[/]")
+    console.print(
+        "[dim]   Press [cyan]Alt+Enter[/cyan] for new line, [cyan]Enter[/cyan] to submit[/dim]"
+    )
+    console.print()
+
+    prompt_text = FormattedText([("#00d7ff bold", "➤ ")])
+
+    task = await _prompt_session.prompt_async(
+        prompt_text,
+        prompt_continuation=FormattedText([("", "  ")]),
+    )
+    return task.strip()
+```
+
+**Benefits**:
+
+- Professional appearance
+- Clear instructions
+- Intuitive keyboard shortcuts
+- Better accessibility
+- Emoji support without XML parsing issues
 
 ---
 
