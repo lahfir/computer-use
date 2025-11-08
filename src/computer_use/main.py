@@ -31,7 +31,13 @@ async def main():
     warnings.filterwarnings("ignore")
     os.environ["PPOCR_SHOW_LOG"] = "False"
 
-    for logger_name in ["browser_use", "easyocr", "paddleocr", "werkzeug", "flask"]:
+    for logger_name in [
+        # "browser_use",
+        "easyocr",
+        "paddleocr",
+        "werkzeug",
+        "flask",
+    ]:
         logging.getLogger(logger_name).setLevel(logging.CRITICAL)
         logging.getLogger(logger_name).propagate = False
 

@@ -53,7 +53,7 @@ print_warning() {
 print_step() {
     echo ""
     echo -e "${CYAN}${GEAR}  $1${NC}"
-    echo -e "${CYAN}${'─'$(printf '─%.0s' {1..60})}${NC}"
+    echo -e "${CYAN}$(printf '─%.0s' {1..60})${NC}"
 }
 
 # Detect OS
@@ -146,7 +146,7 @@ install_python_deps() {
     # Install platform-specific dependencies
     if [ "$OS" = "macos" ]; then
         print_info "Installing macOS accessibility libraries (atomacos)..."
-        if uv sync --extra macos --quiet 2>&1 | grep -v "^$"; then
+        if uv sync --extra macos; then
             print_success "Core + macOS dependencies installed"
         else
             print_error "Failed to install dependencies"
@@ -154,7 +154,7 @@ install_python_deps() {
         fi
     elif [ "$OS" = "windows" ]; then
         print_info "Installing Windows UI Automation libraries (pywinauto)..."
-        if uv sync --extra windows --quiet 2>&1 | grep -v "^$"; then
+        if uv sync --extra windows; then
             print_success "Core + Windows dependencies installed"
         else
             print_error "Failed to install dependencies"
@@ -162,7 +162,7 @@ install_python_deps() {
         fi
     elif [ "$OS" = "linux" ]; then
         print_info "Installing Linux AT-SPI libraries..."
-        if uv sync --extra linux --quiet 2>&1 | grep -v "^$"; then
+        if uv sync --extra linux; then
             print_success "Core + Linux dependencies installed"
         else
             print_error "Failed to install dependencies"

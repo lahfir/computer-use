@@ -91,12 +91,19 @@ class BrowserTool:
         try:
             from browser_use import Agent, BrowserSession, BrowserProfile
             from browser_use.agent.views import AgentHistoryList
+            import logging
+
+            logging.basicConfig(level=logging.DEBUG)
+            browser_use_logger = logging.getLogger("browser_use")
+            browser_use_logger.setLevel(logging.DEBUG)
 
             full_task = f"Navigate to {url} and {task}" if url else task
 
             temp_dir = Path(tempfile.mkdtemp(prefix="browser_agent_"))
 
+            print(f"[BrowserTool] Creating new browser session for task: {task}")
             browser_session = BrowserSession(browser_profile=BrowserProfile())
+            print(f"[BrowserTool] Browser session created: {browser_session}")
 
             agent = Agent(
                 task=full_task,
@@ -106,7 +113,9 @@ class BrowserTool:
                 max_failures=5,
             )
 
+            print("[BrowserTool] Running agent with max_steps=30")
             result: AgentHistoryList = await agent.run(max_steps=30)
+            print(f"[BrowserTool] Agent finished: {result.is_done()}")
 
             agent_called_done = result.is_done()
             task_completed_successfully = result.is_successful()
@@ -149,7 +158,12 @@ class BrowserTool:
                                         )
                                     )
 
-            await browser_session.kill()
+            print("[BrowserTool] Killing browser session")
+            try:
+                await browser_session.kill()
+                print("[BrowserTool] Browser session killed successfully")
+            except Exception as kill_error:
+                print(f"[BrowserTool] Error killing browser session: {kill_error}")
 
             if result.history and len(result.history) > 0:
                 last_result = result.history[-1].result
@@ -236,12 +250,21 @@ class BrowserTool:
             )
 
         except Exception as e:
+            error_msg = str(e)
+            print(f"[BrowserTool] Exception during browser task: {error_msg}")
+
+            if "Event loop is closed" in error_msg:
+                error_msg = (
+                    "Browser session event loop error (browser-use library issue with async cleanup). "
+                    f"Original error: {error_msg}"
+                )
+
             return ActionResult(
                 success=False,
                 action_taken=f"Browser task exception: {task}",
                 method_used="browser",
                 confidence=0.0,
-                error=str(e),
+                error=error_msg,
             )
 
     async def close(self):

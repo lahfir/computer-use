@@ -1,16 +1,13 @@
-"""
-CrewAI-based multi-agent computer automation system.
-"""
+"""CrewAI-based multi-agent computer automation system."""
 
 from pathlib import Path
 from typing import Optional, Dict, List, Any
-from pydantic import BaseModel, Field
 from crewai import Agent, Task, Crew, Process
 from .config.llm_config import LLMConfig
 from .agents.gui_agent import GUIAgent
 from .agents.browser_agent import BrowserAgent
 from .agents.system_agent import SystemAgent
-from .schemas import TaskCompletionOutput
+from .schemas import TaskCompletionOutput, TaskExecutionResult
 from .crew_tools import (
     TakeScreenshotTool,
     ClickElementTool,
@@ -21,6 +18,8 @@ from .crew_tools import (
     ScrollTool,
     ListRunningAppsTool,
     CheckAppRunningTool,
+    GetAccessibleElementsTool,
+    GetWindowImageTool,
     WebAutomationTool,
     ExecuteShellCommandTool,
     FindApplicationTool,
@@ -32,15 +31,6 @@ from .utils.ui import print_success, print_failure, print_info
 import yaml
 import asyncio
 import platform
-
-
-class TaskExecutionResult(BaseModel):
-    """Result from task execution."""
-
-    task: str = Field(..., description="Original task description")
-    result: Optional[str] = Field(None, description="Execution result")
-    overall_success: bool = Field(..., description="Whether execution succeeded")
-    error: Optional[str] = Field(None, description="Error message if failed")
 
 
 class ComputerUseCrew:
@@ -103,7 +93,6 @@ class ComputerUseCrew:
         os_version = platform.release()
         machine = platform.machine()
 
-        # Map internal OS names to user-friendly names
         if os_name == "Darwin":
             platform_name = "macOS"
         elif os_name == "Windows":
@@ -181,6 +170,8 @@ class ComputerUseCrew:
             "scroll": ScrollTool(),
             "list_running_apps": ListRunningAppsTool(),
             "check_app_running": CheckAppRunningTool(),
+            "get_accessible_elements": GetAccessibleElementsTool(),
+            "get_window_image": GetWindowImageTool(),
             "find_application": FindApplicationTool(),
             "request_human_input": RequestHumanInputTool(),
         }
@@ -188,7 +179,7 @@ class ComputerUseCrew:
         for tool in tools.values():
             tool._tool_registry = self.tool_registry
 
-        tools["find_application"]._llm = self.llm
+        tools["find_application"]._llm = LLMConfig.get_orchestration_llm()
 
         return tools
 
@@ -215,27 +206,6 @@ class ComputerUseCrew:
         tool._confirmation_manager = self.confirmation_manager
         return tool
 
-    def _create_manager_agent(self) -> Agent:
-        """
-        Create manager agent for hierarchical process.
-
-        Returns:
-            Manager Agent instance with delegation enabled
-        """
-        manager_config = self.agents_config.get("manager", {})
-
-        # Inject platform context into manager backstory
-        backstory = manager_config.get("backstory", "") + self.platform_context
-
-        return Agent(
-            role=manager_config.get("role", "Task Orchestration Manager"),
-            goal=manager_config.get("goal", "Delegate tasks efficiently"),
-            backstory=backstory,
-            verbose=manager_config.get("verbose", True),
-            allow_delegation=True,
-            llm=self.llm,
-        )
-
     def _build_tool_map(self) -> Dict[str, Any]:
         """
         Build mapping of tool names to tool instances.
@@ -255,6 +225,7 @@ class ComputerUseCrew:
         tool_names: List[str],
         llm: Any,
         tool_map: Dict[str, Any],
+        is_manager: bool = False,
     ) -> Agent:
         """
         Create a CrewAI agent from configuration.
@@ -264,6 +235,7 @@ class ComputerUseCrew:
             tool_names: List of tool names to assign
             llm: LLM instance for this agent
             tool_map: Mapping of tool names to instances
+            is_manager: Whether this is a manager agent
 
         Returns:
             Configured Agent instance
@@ -273,18 +245,22 @@ class ComputerUseCrew:
 
         backstory_with_context = config["backstory"] + self.platform_context
 
-        return Agent(
-            role=config["role"],
-            goal=config["goal"],
-            backstory=backstory_with_context,
-            verbose=config.get("verbose", True),
-            llm=llm,
-            tools=tools,
-            max_iter=config.get("max_iter", 15),
-            allow_delegation=config.get("allow_delegation", False),
-            output_pydantic=TaskCompletionOutput,
-            memory=True,  # Enable agent memory for context awareness
-        )
+        agent_params = {
+            "role": config["role"],
+            "goal": config["goal"],
+            "backstory": backstory_with_context,
+            "verbose": config.get("verbose", True),
+            "llm": llm,
+            "max_iter": config.get("max_iter", 15),
+            "allow_delegation": config.get("allow_delegation", False),
+            "memory": True,
+        }
+
+        if not is_manager:
+            agent_params["tools"] = tools
+            agent_params["output_pydantic"] = TaskCompletionOutput
+
+        return Agent(**agent_params)
 
     def _create_crewai_agents(self) -> Dict[str, Agent]:
         """
@@ -295,20 +271,29 @@ class ComputerUseCrew:
         """
         tool_map = self._build_tool_map()
 
+        manager_agent = self._create_agent(
+            "manager", [], self.llm, tool_map, is_manager=True
+        )
+
         browser_tools = self.agents_config["browser_agent"].get("tools", [])
         gui_tools = self.agents_config["gui_agent"].get("tools", [])
         system_tools = self.agents_config["system_agent"].get("tools", [])
 
+        browser_agent = self._create_agent(
+            "browser_agent", browser_tools, self.llm, tool_map
+        )
+        gui_agent = self._create_agent(
+            "gui_agent", gui_tools, self.vision_llm, tool_map
+        )
+        system_agent = self._create_agent(
+            "system_agent", system_tools, self.llm, tool_map
+        )
+
         return {
-            "browser_agent": self._create_agent(
-                "browser_agent", browser_tools, self.llm, tool_map
-            ),
-            "gui_agent": self._create_agent(
-                "gui_agent", gui_tools, self.vision_llm, tool_map
-            ),
-            "system_agent": self._create_agent(
-                "system_agent", system_tools, self.llm, tool_map
-            ),
+            "manager": manager_agent,
+            "browser_agent": browser_agent,
+            "gui_agent": gui_agent,
+            "system_agent": system_agent,
         }
 
     def _extract_context_from_history(
@@ -343,8 +328,7 @@ class ComputerUseCrew:
     ) -> TaskExecutionResult:
         """
         Execute task using CrewAI's intelligent multi-agent orchestration.
-        Uses hierarchical process with manager agent delegating to specialists,
-        OR sequential process with intelligent task decomposition for complex workflows.
+        Uses intelligent task decomposition to create optimal execution plan.
 
         Args:
             task: Natural language task description
@@ -364,7 +348,6 @@ class ComputerUseCrew:
             context_str = self._extract_context_from_history(conversation_history)
             agents_dict = self._create_crewai_agents()
 
-            # Step 1: Analyze if task needs single agent or multiple agents
             class SubTask(BaseModel):
                 agent_type: str = Field(
                     description="Agent type: 'browser', 'gui', or 'system'"
@@ -393,10 +376,34 @@ USER REQUEST: {task}
 
 AGENT CAPABILITIES:
 - browser: Web research, downloads, data extraction, website interaction
-- gui: Desktop applications (TextEdit, Calculator, Notes, Finder, ANY GUI app), file creation via apps
-- system: Shell commands, file operations via CLI
+- gui: Desktop applications (TextEdit, Calculator, Notes, Finder, System Settings, ANY GUI app), file creation via apps
+- system: Shell commands, file operations via CLI (NOT for system settings/preferences)
+
+🚨 CRITICAL AGENT SELECTION RULES:
+
+GUI AGENT (use for):
+- Opening and interacting with ANY desktop application
+- System Settings/Preferences changes (theme, display, sound, etc.)
+- Calculator, TextEdit, Notes, Finder, etc.
+- ANY task that requires clicking buttons or navigating UI
+- File creation through GUI apps
+
+SYSTEM AGENT (use for):
+- Pure shell commands (ls, cp, mv, find, grep, etc.)
+- File operations via CLI (when GUI is not needed)
+- Running scripts or command-line tools
+- NEVER for system preferences/settings changes
+
+BROWSER AGENT (use for):
+- Web research and data extraction
+- Downloading files from websites
+- Website interaction and automation
 
 CRITICAL ANALYSIS PATTERNS:
+
+"Change system theme/settings/preferences"
+→ ONE subtask: gui (open System Settings, navigate, click options)
+→ NEVER use system agent for OS settings changes
 
 "Research X and create/save file with results"
 → TWO subtasks: browser (get data) → gui or system (create file with that data)
@@ -435,7 +442,8 @@ ORCHESTRATION RULES:
 
 Analyze the request and create an optimal task plan:"""
 
-            structured_llm = self.llm.with_structured_output(TaskPlan)
+            orchestration_llm = LLMConfig.get_orchestration_llm()
+            structured_llm = orchestration_llm.with_structured_output(TaskPlan)
             plan = structured_llm.invoke([HumanMessage(content=orchestration_prompt)])
 
             print_info(f"🧠 Task Analysis: {plan.reasoning}")
@@ -450,7 +458,6 @@ Analyze the request and create an optimal task plan:"""
 
             for idx, subtask in enumerate(plan.subtasks):
                 agent_key = f"{subtask.agent_type}_agent"
-
                 if agent_key not in agents_dict:
                     print_failure(f"⚠️  Invalid agent: {subtask.agent_type}, skipping")
                     continue
@@ -462,13 +469,11 @@ Analyze the request and create an optimal task plan:"""
                 if idx == 0 and context_str:
                     task_desc = f"{task_desc}{context_str}"
 
-                # Create CrewAI Task
                 crew_task = Task(
                     description=task_desc,
                     expected_output=subtask.expected_output,
                     agent=agent,
                     output_pydantic=TaskCompletionOutput,
-                    # If depends_on_previous, this task will receive previous task's output via context
                     context=(
                         [crew_tasks[-1]]
                         if subtask.depends_on_previous and crew_tasks
@@ -478,7 +483,13 @@ Analyze the request and create an optimal task plan:"""
                 crew_tasks.append(crew_task)
 
             if len(crew_tasks) == 0:
-                raise ValueError("No valid subtasks created from plan")
+                return TaskExecutionResult(
+                    task=task,
+                    overall_success=True,
+                    result=plan.reasoning
+                    or "Hello! I'm ready to help you with computer automation tasks. What would you like me to do?",
+                    error=None,
+                )
 
             self.crew = Crew(
                 agents=list(set(crew_agents)),

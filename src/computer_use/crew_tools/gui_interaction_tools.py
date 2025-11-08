@@ -1,6 +1,6 @@
 """
 Interactive GUI automation tools for CrewAI.
-Complex tools: click_element (multi-tier), type_text (smart paste).
+Refactored for clarity: discovery separate from execution.
 """
 
 from crewai.tools import BaseTool
@@ -9,134 +9,114 @@ from typing import Optional
 
 from ..schemas.actions import ActionResult
 from ..utils.ui import console
+from ..utils.ocr_targeting import (
+    score_ocr_candidate,
+    filter_candidates_by_spatial_context,
+)
+from ..config.timing_config import get_timing_config
 
 
 class ClickInput(BaseModel):
     """Input for clicking an element."""
 
-    target: str = Field(description="Element to click (e.g., 'Auto', 'Save button')")
+    target: str = Field(description="Element to click (e.g., 'Light', 'Save button')")
+    element: Optional[dict] = Field(
+        default=None,
+        description="Element from get_accessible_elements with 'center' [x, y]. Preferred method for accuracy.",
+    )
     visual_context: Optional[str] = Field(
         default=None,
-        description="CRITICAL: Spatial context REQUIRED! MUST include spatial keywords: 'top', 'bottom', 'left', 'right', 'first', 'last', 'center'. Examples: 'at top', 'bottom right', 'first button'. BAD: 'in theme options' (not spatial!). GOOD: 'theme button at top'.",
+        description="Spatial context for OCR fallback only. MUST include keywords: 'top', 'bottom', 'left', 'right', 'center'. Examples: 'right side at top', 'left sidebar'.",
     )
     click_type: str = Field(
         default="single", description="Click type: single, double, or right"
     )
     current_app: Optional[str] = Field(
-        default=None, description="Current application name for accessibility"
+        default=None, description="Current application name (for window cropping)"
     )
 
 
 class ClickElementTool(BaseTool):
     """
-    Click element using multi-tier accuracy.
-    TIER 1: Accessibility API → TIER 2: OCR
-    Platform-agnostic: uses normalized coordinates from accessibility tools.
+    Click element using element coordinates or OCR fallback.
+    Preferred: Use get_accessible_elements first, then pass element dict.
+    Fallback: OCR with visual_context for spatial disambiguation.
+    CRITICAL: Always provide current_app for accurate window-relative coordinates.
     """
 
     name: str = "click_element"
-    description: str = """Click element using multi-tier accuracy (Accessibility API → OCR).
-    Supports single, double, and right click. Works on Windows/macOS/Linux."""
+    description: str = """Click element using coordinates or OCR.
+    PREFERRED: Pass element dict from get_accessible_elements.
+    FALLBACK: OCR with visual_context (spatial keywords required).
+    CRITICAL: Always provide current_app parameter for accurate window-relative clicks."""
     args_schema: type[BaseModel] = ClickInput
 
     def _run(
         self,
         target: str,
+        element: Optional[dict] = None,
         visual_context: Optional[str] = None,
         click_type: str = "single",
         current_app: Optional[str] = None,
     ) -> ActionResult:
         """
-        Click element with multi-tier approach + visual context awareness.
-        Platform-agnostic implementation using normalized coordinates.
+        Click element with simplified logic.
 
         Args:
-            target: Element identifier
-            visual_context: Visual/spatial context for disambiguation
+            target: Element identifier (for logging)
+            element: Element dict with 'center' [x, y] (preferred)
+            visual_context: Spatial context for OCR fallback
             click_type: single/double/right
-            current_app: Current app for accessibility
+            current_app: Current app for window cropping
 
         Returns:
             ActionResult with click details
         """
-        # Get tools
-        screenshot_tool = self._tool_registry.get_tool("screenshot")
-        accessibility_tool = self._tool_registry.get_tool("accessibility")
-        ocr_tool = self._tool_registry.get_tool("ocr")
         input_tool = self._tool_registry.get_tool("input")
 
-        # Take screenshot
-        screenshot = screenshot_tool.capture()
+        if element and "center" in element:
+            console.print("    [cyan]TIER 1:[/cyan] Element coordinates")
+            center = element["center"]
+            if isinstance(center, list) and len(center) == 2:
+                x, y = center
+                console.print(f"    [green]Clicking {target} at ({x}, {y})[/green]")
 
-        # Handle empty space clicks
-        empty_space_keywords = [
-            "empty space",
-            "blank area",
-            "empty area",
-            "blank space",
-            "background",
-        ]
-        target_lower = target.lower()
-        is_empty_space = any(
-            keyword in target_lower for keyword in empty_space_keywords
-        )
+                if click_type == "double":
+                    success = input_tool.double_click(x, y, validate=True)
+                elif click_type == "right":
+                    success = input_tool.right_click(x, y, validate=True)
+                else:
+                    success = input_tool.click(x, y, validate=True)
 
-        if is_empty_space and accessibility_tool and current_app:
-            bounds = accessibility_tool.get_app_window_bounds(current_app)
-            if bounds:
-                x, y, w, h = bounds
-                center_x = x + w // 2
-                center_y = y + h // 2
-                success = input_tool.click(center_x, center_y, validate=True)
+                import time
+
+                timing = get_timing_config()
+                time.sleep(timing.ui_state_change_delay)
+                console.print(
+                    f"    [dim]⏱️  Waited {timing.ui_state_change_delay}s for UI state change[/dim]"
+                )
+
                 return ActionResult(
                     success=success,
-                    action_taken=f"Clicked empty space at ({center_x}, {center_y})",
-                    method_used="semantic",
+                    action_taken=f"Clicked {target}",
+                    method_used="element_coordinates",
                     confidence=1.0,
-                    data={"coordinates": (center_x, center_y)},
+                    data={"coordinates": (x, y)},
                 )
 
-        # TIER 1: Accessibility API
-        if accessibility_tool and accessibility_tool.available:
-            console.print("    [cyan]TIER 1:[/cyan] Accessibility API")
+        console.print("    [cyan]TIER 2:[/cyan] OCR fallback")
 
-            # TIER 1A: Native click
-            if hasattr(accessibility_tool, "click_element") and current_app:
-                clicked, element = accessibility_tool.click_element(target, current_app)
-                if clicked:
-                    return ActionResult(
-                        success=True,
-                        action_taken=f"Clicked {target}",
-                        method_used="accessibility_native",
-                        confidence=1.0,
-                    )
+        screenshot_tool = self._tool_registry.get_tool("screenshot")
+        ocr_tool = self._tool_registry.get_tool("ocr")
+        accessibility_tool = self._tool_registry.get_tool("accessibility")
 
-            # TIER 1B: Find elements via accessibility (platform-agnostic)
-            if current_app:
-                elements = accessibility_tool.find_elements(
-                    label=target, app_name=current_app
-                )
-                if elements:
-                    elem = elements[0]
-                    x, y = elem["center"]
+        # CRITICAL: Warn if current_app not provided
+        if not current_app:
+            console.print(
+                "    [yellow]⚠️  WARNING: current_app not provided! Using full screen coordinates. This will likely fail![/yellow]"
+            )
 
-                    if click_type == "double":
-                        success = input_tool.double_click(x, y, validate=True)
-                    elif click_type == "right":
-                        success = input_tool.right_click(x, y, validate=True)
-                    else:
-                        success = input_tool.click(x, y, validate=True)
-
-                    return ActionResult(
-                        success=success,
-                        action_taken=f"Clicked {target}",
-                        method_used="accessibility_coordinates",
-                        confidence=1.0,
-                        data={"coordinates": (x, y)},
-                    )
-
-        # TIER 2: OCR
-        console.print("    [cyan]TIER 2:[/cyan] OCR")
+        screenshot = screenshot_tool.capture()
         scaling = getattr(screenshot_tool, "scaling_factor", 1.0)
         ocr_screenshot = screenshot
         x_offset = 0
@@ -160,141 +140,105 @@ class ClickElementTool(BaseTool):
                 except Exception:
                     pass
 
-        # OCR fuzzy find
+        candidates = []
         try:
-            text_matches = ocr_tool.find_text(ocr_screenshot, target, fuzzy=True)
-            if text_matches:
-                element = text_matches[0]
-                x_raw, y_raw = element.center
-                x_screen = int(x_raw / scaling) + x_offset
-                y_screen = int(y_raw / scaling) + y_offset
-
-                if click_type == "double":
-                    success = input_tool.double_click(x_screen, y_screen, validate=True)
-                elif click_type == "right":
-                    success = input_tool.right_click(x_screen, y_screen, validate=True)
-                else:
-                    success = input_tool.click(x_screen, y_screen, validate=True)
-
-                return ActionResult(
-                    success=success,
-                    action_taken=f"Clicked {target}",
-                    method_used="ocr",
-                    confidence=element.confidence,
-                    data={"coordinates": (x_screen, y_screen)},
-                )
+            exact_matches = ocr_tool.find_text(ocr_screenshot, target, fuzzy=False)
+            if exact_matches:
+                candidates.extend(exact_matches)
+            else:
+                fuzzy_matches = ocr_tool.find_text(ocr_screenshot, target, fuzzy=True)
+                if fuzzy_matches:
+                    candidates.extend(fuzzy_matches)
         except Exception:
             pass
 
-        # Fuzzy matching fallback with spatial filtering
+        # Add all text for comprehensive scoring
         try:
-            all_text = ocr_tool.extract_all_text(ocr_screenshot)
-            target_lower = target.lower().strip()
-
-            # SPATIAL FILTERING: Use visual_context to filter candidates
-            if visual_context:
-                context_lower = visual_context.lower()
-                screenshot_height = ocr_screenshot.height
-                screenshot_width = ocr_screenshot.width
-
-                # Filter by vertical position
-                if "top" in context_lower or "above" in context_lower:
-                    all_text = [
-                        item
-                        for item in all_text
-                        if item.center[1] < screenshot_height * 0.4
-                    ]
-                elif "bottom" in context_lower or "below" in context_lower:
-                    all_text = [
-                        item
-                        for item in all_text
-                        if item.center[1] > screenshot_height * 0.6
-                    ]
-                elif "middle" in context_lower or "center" in context_lower:
-                    all_text = [
-                        item
-                        for item in all_text
-                        if screenshot_height * 0.3
-                        < item.center[1]
-                        < screenshot_height * 0.7
-                    ]
-
-                # Filter by horizontal position
-                if "left" in context_lower:
-                    all_text = [
-                        item
-                        for item in all_text
-                        if item.center[0] < screenshot_width * 0.4
-                    ]
-                elif "right" in context_lower:
-                    all_text = [
-                        item
-                        for item in all_text
-                        if item.center[0] > screenshot_width * 0.6
-                    ]
-
-                # Filter by order
-                if "first" in context_lower:
-                    all_text = sorted(
-                        all_text, key=lambda item: (item.center[1], item.center[0])
-                    )[:3]
-                elif "last" in context_lower:
-                    all_text = sorted(
-                        all_text, key=lambda item: (item.center[1], item.center[0])
-                    )[-3:]
-
-            best_match = None
-            best_score = -999
-
-            for item in all_text:
-                text_lower = item.text.lower().strip()
-                if text_lower == target_lower:
-                    score = 1000 + item.confidence * 100
-                elif text_lower.startswith(target_lower):
-                    score = 700 + item.confidence * 100
-                elif target_lower in text_lower:
-                    score = (
-                        400
-                        - (len(text_lower) - len(target_lower))
-                        + item.confidence * 100
-                    )
-                elif target_lower.startswith(text_lower) and len(text_lower) >= 3:
-                    score = 300 + item.confidence * 100
-                else:
-                    continue
-
-                if score > best_score:
-                    best_match = item
-                    best_score = score
-
-            if best_match:
-                x_raw, y_raw = best_match.center
-                x_screen = int(x_raw / scaling) + x_offset
-                y_screen = int(y_raw / scaling) + y_offset
-
-                if click_type == "double":
-                    success = input_tool.double_click(x_screen, y_screen, validate=True)
-                elif click_type == "right":
-                    success = input_tool.right_click(x_screen, y_screen, validate=True)
-                else:
-                    success = input_tool.click(x_screen, y_screen, validate=True)
-
-                return ActionResult(
-                    success=success,
-                    action_taken=f"Clicked {target}",
-                    method_used="ocr",
-                    confidence=best_match.confidence,
-                    data={"coordinates": (x_screen, y_screen)},
-                )
+            all_text = ocr_tool.extract_all_text(ocr_screenshot) or []
+            existing_ids = {id(item) for item in candidates}
+            candidates.extend(item for item in all_text if id(item) not in existing_ids)
         except Exception:
             pass
+
+        if not candidates:
+            return ActionResult(
+                success=False,
+                action_taken=f"Failed to click {target}",
+                method_used="ocr",
+                confidence=0.0,
+                error=f"No OCR text found for '{target}'. Consider using get_window_image for visual analysis.",
+            )
+
+        # Apply spatial filtering if visual_context provided
+        if visual_context:
+            candidates = filter_candidates_by_spatial_context(
+                candidates, visual_context, ocr_screenshot.width, ocr_screenshot.height
+            )
+
+        # Score all candidates
+        target_lower = target.lower().strip()
+        best_match = None
+        best_score = -999.0
+
+        for item in candidates:
+            score, relation = score_ocr_candidate(
+                item,
+                target_lower,
+                ocr_screenshot.width,
+                ocr_screenshot.height,
+                visual_context,
+            )
+            if score > best_score:
+                best_match = item
+                best_score = score
+
+        # Check score threshold
+        MIN_VIABLE_SCORE = 500.0
+        if not best_match or best_score < MIN_VIABLE_SCORE:
+            console.print(
+                f"    [red]No reliable OCR target for '{target}'. Best score: {best_score:.2f}[/red]"
+            )
+            return ActionResult(
+                success=False,
+                action_taken=f"Failed to click {target}",
+                method_used="ocr",
+                confidence=0.0,
+                error=f"No reliable OCR match for '{target}' (score {best_score:.2f} < {MIN_VIABLE_SCORE}). Suggestion: Use get_window_image for visual analysis or get_accessible_elements for element discovery.",
+            )
+
+        x_raw, y_raw = best_match.center
+        x_screen = int(x_raw / scaling) + x_offset
+        y_screen = int(y_raw / scaling) + y_offset
+
+        console.print(
+            f"    [green]Clicking '{best_match.text}' (score {best_score:.1f}) at ({x_screen}, {y_screen})[/green]"
+        )
+
+        if click_type == "double":
+            success = input_tool.double_click(x_screen, y_screen, validate=True)
+        elif click_type == "right":
+            success = input_tool.right_click(x_screen, y_screen, validate=True)
+        else:
+            success = input_tool.click(x_screen, y_screen, validate=True)
+
+        import time
+
+        timing = get_timing_config()
+        time.sleep(timing.ui_state_change_delay)
+        console.print(
+            f"    [dim]⏱️  Waited {timing.ui_state_change_delay}s for UI state change[/dim]"
+        )
 
         return ActionResult(
-            success=False,
-            action_taken=f"Failed to click {target}",
-            method_used="multi_tier",
-            confidence=0.0,
-            error=f"Could not locate: {target}",
+            success=success,
+            action_taken=f"Clicked {target}",
+            method_used="ocr",
+            confidence=best_match.confidence,
+            data={
+                "coordinates": (x_screen, y_screen),
+                "matched_text": best_match.text,
+                "score": best_score,
+            },
         )
 
 

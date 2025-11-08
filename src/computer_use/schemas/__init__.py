@@ -17,6 +17,7 @@ from .tool_types import (
     OpenAppResult,
 )
 from .task_output import TaskCompletionOutput
+from .task_execution_result import TaskExecutionResult
 
 __all__ = [
     "UIElement",
@@ -36,4 +37,5 @@ __all__ = [
     "ReadResult",
     "OpenAppResult",
     "TaskCompletionOutput",
+    "TaskExecutionResult",
 ]

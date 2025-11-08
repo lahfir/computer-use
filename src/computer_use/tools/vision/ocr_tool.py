@@ -128,7 +128,7 @@ class OCRTool:
                 )
                 continue
 
-        console.print(f"      [OCR] All engines exhausted, no match found")
+        console.print("      [OCR] All engines exhausted, no match found")
         return []
 
     def extract_all_text(self, screenshot: Image.Image) -> List[OCRResult]:

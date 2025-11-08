@@ -76,12 +76,15 @@ class PlatformToolRegistry:
         tools: Dict[str, ToolType] = {}
 
         if self.capabilities.accessibility_api_available:
+            screen_width, screen_height = self.capabilities.screen_resolution
             if self.capabilities.os_type == "macos":
-                tools["accessibility"] = MacOSAccessibility()
+                tools["accessibility"] = MacOSAccessibility(screen_width, screen_height)
             elif self.capabilities.os_type == "windows":
-                tools["accessibility"] = WindowsAccessibility()
+                tools["accessibility"] = WindowsAccessibility(
+                    screen_width, screen_height
+                )
             elif self.capabilities.os_type == "linux":
-                tools["accessibility"] = LinuxAccessibility()
+                tools["accessibility"] = LinuxAccessibility(screen_width, screen_height)
 
         use_gpu = (
             self.capabilities.gpu_available

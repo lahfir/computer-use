@@ -6,6 +6,7 @@ from typing import List, Optional, Dict, Any
 import platform
 
 from ...utils.ui import print_success, print_warning, print_info, console
+from ...config.timing_config import get_timing_config
 
 
 class MacOSAccessibility:
@@ -14,11 +15,64 @@ class MacOSAccessibility:
     Provides 100% accurate element coordinates and direct interaction via AX APIs.
     """
 
-    def __init__(self):
+    def __init__(self, screen_width: int = 1920, screen_height: int = 1080):
         """Initialize macOS accessibility with atomacos."""
         self.available = self._check_availability()
+        self.current_app_name = None
+        self.current_app_ref = None
+        self.screen_width = screen_width
+        self.screen_height = screen_height
         if self.available:
             self._initialize_api()
+
+    def set_active_app(self, app_name: str):
+        """
+        Set the active app that's currently in focus.
+
+        This should be called by open_application after successfully focusing the app.
+        The cached reference will be used for all subsequent operations until a different app is opened.
+
+        Args:
+            app_name: The application name that was just opened/focused
+        """
+        print(f"        [set_active_app] Setting active app to '{app_name}'")
+
+        # Clear old cache if switching apps
+        if self.current_app_name and self.current_app_name.lower() != app_name.lower():
+            print(
+                f"        [set_active_app] Switching from '{self.current_app_name}' to '{app_name}'"
+            )
+            self.current_app_name = None
+            self.current_app_ref = None
+
+        # Get fresh reference for the newly focused app
+        try:
+            app = self.atomacos.getAppRefByLocalizedName(app_name)
+            app_title = getattr(app, "AXTitle", "")
+
+            if app_title and (
+                app_name.lower() in app_title.lower()
+                or app_title.lower() in app_name.lower()
+            ):
+                print(f"        [set_active_app] ✅ Cached '{app_title}' as active app")
+                self.current_app_name = app_name
+                self.current_app_ref = app
+            else:
+                print(
+                    f"        [set_active_app] ❌ App name mismatch: requested '{app_name}', got '{app_title}'"
+                )
+        except Exception as e:
+            print(f"        [set_active_app] ⚠️  Failed to cache app: {e}")
+
+    def clear_app_cache(self):
+        """
+        Clear the cached app reference.
+
+        Use this only when you need to force a fresh lookup (e.g., on retries).
+        """
+        print("        [clear_app_cache] Clearing cached app reference")
+        self.current_app_name = None
+        self.current_app_ref = None
 
     def _check_availability(self) -> bool:
         """Check if atomacos is available and platform is macOS."""
@@ -90,6 +144,71 @@ class MacOSAccessibility:
             print_warning(f"Accessibility search failed: {e}")
             return (False, None)
 
+    def try_click_element_or_parent(
+        self, element_dict: Dict[str, Any], max_depth: int = 5
+    ) -> tuple:
+        """
+        Try to click element using native accessibility, traversing up to parent if needed.
+
+        Args:
+            element_dict: Element dictionary with bounds, title, etc.
+            max_depth: Maximum parent traversal depth
+
+        Returns:
+            Tuple of (success: bool, method: str)
+            method can be: "element", "parent_N", or "failed"
+        """
+        if not self.available:
+            return (False, "unavailable")
+
+        try:
+            # Get the atomacos element reference
+            element = element_dict.get("_element")
+            if not element:
+                return (False, "no_element_reference")
+
+            # Try to click the element directly first
+            console.print("    [dim]Trying native click on element...[/dim]")
+            try:
+                self._perform_click(element)
+                console.print("    [green]✅ Clicked element directly![/green]")
+                return (True, "element")
+            except Exception as e:
+                console.print(f"    [dim]Element click failed: {e}[/dim]")
+
+            # Traverse up to parents and try clicking them
+            current = element
+            for depth in range(1, max_depth + 1):
+                try:
+                    if hasattr(current, "AXParent") and current.AXParent:
+                        parent = current.AXParent
+                        parent_role = str(getattr(parent, "AXRole", "Unknown"))
+                        console.print(
+                            f"    [dim]Trying parent {depth} ({parent_role})...[/dim]"
+                        )
+
+                        try:
+                            self._perform_click(parent)
+                            console.print(
+                                f"    [green]✅ Clicked parent {depth}![/green]"
+                            )
+                            return (True, f"parent_{depth}")
+                        except Exception as e:
+                            console.print(
+                                f"    [dim]Parent {depth} click failed: {e}[/dim]"
+                            )
+                            current = parent
+                    else:
+                        break
+                except Exception:
+                    break
+
+            return (False, "not_clickable")
+
+        except Exception as e:
+            console.print(f"    [yellow]Native click error: {e}[/yellow]")
+            return (False, "error")
+
     def get_all_interactive_elements(
         self, app_name: Optional[str] = None
     ) -> List[Dict[str, Any]]:
@@ -134,6 +253,148 @@ class MacOSAccessibility:
 
         return elements
 
+    def get_all_ui_elements(
+        self, app_name: Optional[str] = None, include_menu_bar: bool = True
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Get ALL UI elements from an application with categorization.
+        Includes interactive elements, menu items, toolbars, and more.
+
+        Args:
+            app_name: Application name to search in
+            include_menu_bar: Whether to include menu bar items
+
+        Returns:
+            Dictionary with categorized elements:
+            {
+                "interactive": [...],  # Buttons, text fields, etc.
+                "menu_bar": [...],     # Menu bar items
+                "menu_items": [...],   # Menu items (File, Edit, etc.)
+                "static": [...],       # Labels, static text
+                "structural": [...]    # Groups, toolbars, containers
+            }
+        """
+        if not self.available:
+            return {
+                "interactive": [],
+                "menu_bar": [],
+                "menu_items": [],
+                "static": [],
+                "structural": [],
+            }
+
+        categorized = {
+            "interactive": [],
+            "menu_bar": [],
+            "menu_items": [],
+            "static": [],
+            "structural": [],
+        }
+
+        try:
+            app = None
+            windows = []
+
+            print(f"🔍 Retry loop START for '{app_name}'")
+
+            timing = get_timing_config()
+            for attempt in range(timing.accessibility_retry_count):
+                print(
+                    f"    🔄 Attempt {attempt + 1}/{timing.accessibility_retry_count}: Getting fresh app reference..."
+                )
+
+                if attempt > 0:
+                    print("        [RETRY] Clearing app cache to force fresh lookup...")
+                    self.current_app_name = None
+                    self.current_app_ref = None
+
+                app = self._get_app(app_name)
+
+                if app is None:
+                    print(
+                        f"    ❌ Attempt {attempt + 1}/{timing.accessibility_retry_count}: App reference is None!"
+                    )
+                    continue
+
+                print(f"    ✓ Got app reference: {getattr(app, 'AXTitle', 'Unknown')}")
+
+                # Try to get windows from this app reference
+                windows = self._get_app_windows(app)
+
+                print(f"    📊 _get_app_windows returned {len(windows)} window(s)")
+
+                if windows:
+                    print(
+                        f"    ✅ SUCCESS on attempt {attempt + 1}: {len(windows)} window(s)"
+                    )
+                    break
+                else:
+                    print(f"    ⚠️  Attempt {attempt + 1}/3: 0 windows!")
+
+            if not app:
+                print("    ❌ FAILED: No app reference after 3 attempts")
+                return categorized
+
+            if not windows:
+                print(
+                    f"    ❌ FAILED: App '{getattr(app, 'AXTitle', 'Unknown')}' has 0 windows after 3 retries!"
+                )
+                print(f"       hasattr AXWindows: {hasattr(app, 'AXWindows')}")
+                print(f"       hasattr AXChildren: {hasattr(app, 'AXChildren')}")
+                if hasattr(app, "AXWindows"):
+                    print(f"       app.AXWindows value: {app.AXWindows}")
+                if hasattr(app, "AXChildren"):
+                    print(
+                        f"       app.AXChildren count: {len(app.AXChildren) if app.AXChildren else 0}"
+                    )
+
+            # Collect menu bar elements
+            if include_menu_bar and hasattr(app, "AXMenuBar"):
+                try:
+                    menu_bar = app.AXMenuBar
+                    self._collect_all_elements(
+                        menu_bar, categorized, depth=0, context="menu_bar"
+                    )
+                except Exception:
+                    pass
+
+            # Use the windows we found
+            print(
+                f"    Searching {len(windows)} window(s) for all UI elements (categorized)"
+            )
+
+            for window in windows:
+                self._collect_all_elements(
+                    window, categorized, depth=0, context="window"
+                )
+
+            # Fallback to frontmost app if no elements found
+            if all(len(v) == 0 for v in categorized.values()) and len(windows) > 0:
+                frontmost = self.atomacos.NativeUIElement.getFrontmostApp()
+                if frontmost and hasattr(frontmost, "AXTitle"):
+                    frontmost_name = str(frontmost.AXTitle)
+                    if frontmost_name.lower() != (app_name or "").lower():
+                        print(
+                            f"    ⚠️  Frontmost app is '{frontmost_name}', trying that instead"
+                        )
+                        frontmost_windows = self._get_app_windows(frontmost)
+                        for window in frontmost_windows:
+                            self._collect_all_elements(
+                                window, categorized, depth=0, context="window"
+                            )
+
+        except Exception as e:
+            print(f"    ⚠️  Accessibility search error: {e}")
+
+        # Print summary
+        total = sum(len(v) for v in categorized.values())
+        print(f"    📊 Found {total} total elements:")
+        for category, items in categorized.items():
+            if items:
+                print(f"       • {category}: {len(items)}")
+
+        return categorized
+
     def get_app_window_bounds(self, app_name: Optional[str] = None) -> Optional[tuple]:
         """
         Get the bounds of the app's main window for OCR cropping.
@@ -161,6 +422,205 @@ class MacOSAccessibility:
 
         return None
 
+    def _collect_all_elements(
+        self,
+        container,
+        categorized: Dict[str, List[Dict[str, Any]]],
+        depth: int = 0,
+        context: str = "window",
+    ):
+        """
+        Recursively collect ALL UI elements with categorization.
+
+        Args:
+            container: Accessibility element to traverse
+            categorized: Dictionary to store categorized elements
+            depth: Current recursion depth
+            context: Context hint (menu_bar, window, etc.)
+        """
+        if depth > 25:
+            return
+
+        try:
+            elem_role = getattr(container, "AXRole", "")
+            role_str = str(elem_role)
+
+            if role_str == "AXApplication":
+                if hasattr(container, "AXChildren") and container.AXChildren:
+                    for child in container.AXChildren:
+                        self._collect_all_elements(
+                            child, categorized, depth + 1, context
+                        )
+                return
+
+            category = self._categorize_element(role_str, context)
+            element_info = self._extract_element_info(container, role_str, category)
+
+            if element_info:
+                categorized[category].append(element_info)
+
+            if hasattr(container, "AXChildren") and container.AXChildren:
+                new_context = context
+                if role_str in ["AXMenuBar", "AXMenuBarItem"]:
+                    new_context = "menu_bar"
+                elif role_str in ["AXMenu", "AXMenuItem"]:
+                    new_context = "menu_items"
+
+                for child in container.AXChildren:
+                    self._collect_all_elements(
+                        child, categorized, depth + 1, new_context
+                    )
+
+        except Exception:
+            pass
+
+    def _categorize_element(self, role_str: str, context: str) -> str:
+        """
+        Categorize an element based on its role and context.
+
+        Returns:
+            Category name: interactive, menu_bar, menu_items, static, or structural
+        """
+        if context == "menu_bar" or role_str in [
+            "AXMenuBar",
+            "AXMenuBarItem",
+            "AXMenuButton",
+        ]:
+            return "menu_bar"
+
+        if context == "menu_items" or role_str in ["AXMenu", "AXMenuItem"]:
+            return "menu_items"
+
+        interactive_roles = [
+            "AXButton",
+            "AXCheckBox",
+            "AXRadioButton",
+            "AXTextField",
+            "AXTextArea",
+            "AXComboBox",
+            "AXPopUpButton",
+            "AXSlider",
+            "AXIncrementor",
+            "AXLink",
+            "AXTab",
+            "AXSwitch",
+            "AXToggle",
+            "AXSearchField",
+            "AXSecureTextField",
+        ]
+        if role_str in interactive_roles:
+            return "interactive"
+
+        static_roles = [
+            "AXStaticText",
+            "AXText",
+            "AXLabel",
+            "AXImage",
+            "AXValueIndicator",
+        ]
+        if role_str in static_roles:
+            return "static"
+
+        structural_roles = [
+            "AXGroup",
+            "AXToolbar",
+            "AXSplitGroup",
+            "AXScrollArea",
+            "AXList",
+            "AXTable",
+            "AXRow",
+            "AXColumn",
+            "AXOutline",
+            "AXTabGroup",
+        ]
+        if role_str in structural_roles:
+            return "structural"
+
+        return "structural"
+
+    def _extract_element_info(
+        self, container, role_str: str, category: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Extract relevant information from an accessibility element.
+
+        Returns:
+            Dictionary with element info or None if element should be skipped
+        """
+        try:
+            identifier = getattr(container, "AXIdentifier", "")
+            description = ""
+
+            if hasattr(container, "AXAttributedDescription"):
+                try:
+                    desc_obj = container.AXAttributedDescription
+                    description = str(desc_obj).split("{")[0].strip()
+                except Exception:
+                    pass
+
+            if not description:
+                description = (
+                    getattr(container, "AXTitle", "")
+                    or getattr(container, "AXValue", "")
+                    or getattr(container, "AXDescription", "")
+                )
+
+            if not identifier and not description:
+                return None
+
+            center = None
+            bounds = None
+            is_valid_for_clicking = True
+            try:
+                if hasattr(container, "AXPosition") and hasattr(container, "AXSize"):
+                    position = container.AXPosition
+                    size = container.AXSize
+                    x, y = position
+                    w, h = size
+
+                    if w <= 0 or h <= 0:
+                        is_valid_for_clicking = False
+                    elif (
+                        x < 0
+                        or y < 0
+                        or x > self.screen_width
+                        or y > self.screen_height
+                    ):
+                        is_valid_for_clicking = False
+
+                    if is_valid_for_clicking:
+                        center = [int(x + w / 2), int(y + h / 2)]
+                        bounds = [int(x), int(y), int(w), int(h)]
+
+                        if y < 40 and category == "menu_bar":
+                            is_valid_for_clicking = False
+            except Exception:
+                pass
+
+            if not is_valid_for_clicking:
+                return None
+
+            return {
+                "identifier": identifier,
+                "role": role_str.replace("AX", ""),
+                "description": str(description),
+                "label": str(description),
+                "title": str(description),
+                "category": category,
+                "center": center,
+                "bounds": bounds,
+                "has_actions": bool(
+                    hasattr(container, "AXActions") and container.AXActions
+                ),
+                "enabled": bool(
+                    hasattr(container, "AXEnabled") and container.AXEnabled
+                ),
+                "_element": container,
+            }
+
+        except Exception:
+            return None
+
     def _collect_interactive_elements(
         self, container, elements: List[Dict[str, Any]], depth=0
     ):
@@ -178,10 +638,36 @@ class MacOSAccessibility:
                 return
 
             is_interactive = False
+            role_str = str(elem_role)
 
-            if hasattr(container, "AXEnabled") and container.AXEnabled:
-                if hasattr(container, "AXActions") and container.AXActions:
-                    is_interactive = True
+            if hasattr(container, "AXActions") and container.AXActions:
+                is_interactive = True
+
+            if not is_interactive and hasattr(container, "AXEnabled"):
+                if container.AXEnabled:
+                    interactive_roles = [
+                        "AXButton",
+                        "AXCheckBox",
+                        "AXRadioButton",
+                        "AXTextField",
+                        "AXTextArea",
+                        "AXComboBox",
+                        "AXPopUpButton",
+                        "AXSlider",
+                        "AXIncrementor",
+                        "AXLink",
+                        "AXMenuItem",
+                        "AXTab",
+                    ]
+                    if role_str in interactive_roles:
+                        is_interactive = True
+
+            if not is_interactive and role_str in [
+                "AXButton",
+                "AXCheckBox",
+                "AXRadioButton",
+            ]:
+                is_interactive = True
 
             if is_interactive:
                 identifier = getattr(container, "AXIdentifier", "")
@@ -200,13 +686,26 @@ class MacOSAccessibility:
                     )
 
                 if identifier or description:
-                    elements.append(
-                        {
-                            "identifier": identifier,
-                            "role": str(elem_role).replace("AX", ""),
-                            "description": description,
-                        }
-                    )
+                    try:
+                        position = container.AXPosition
+                        size = container.AXSize
+                        x, y = position
+                        w, h = size
+
+                        elements.append(
+                            {
+                                "identifier": identifier,
+                                "role": str(elem_role).replace("AX", ""),
+                                "description": description,
+                                "label": description,  # For compatibility with click_element
+                                "title": description,  # For compatibility with click_element
+                                "center": [int(x + w / 2), int(y + h / 2)],
+                                "bounds": [int(x), int(y), int(w), int(h)],
+                            }
+                        )
+                    except Exception:
+                        # If we can't get coordinates, skip this element
+                        pass
 
             if hasattr(container, "AXChildren") and container.AXChildren:
                 for child in container.AXChildren:
@@ -268,11 +767,67 @@ class MacOSAccessibility:
         return elements
 
     def _get_app(self, app_name: Optional[str] = None):
-        """Get application reference by name or frontmost app."""
-        if app_name:
-            return self.atomacos.getAppRefByLocalizedName(app_name)
-        else:
-            return self.atomacos.NativeUIElement.getFrontmostApp()
+        """
+        Get application reference by name.
+        Uses cached reference when available.
+
+        IMPORTANT: This should ONLY be called after open_application has set the active app.
+        No frontmost app fallbacks - if the app isn't cached or found, we fail.
+        """
+        print(f"        [_get_app] Looking for app: '{app_name}'")
+
+        if not app_name:
+            raise ValueError("app_name is required - no frontmost app fallback")
+
+        # Check cache first!
+        if self.current_app_name and self.current_app_ref:
+            if app_name.lower() == self.current_app_name.lower():
+                print(f"        [_get_app] 🚀 Using CACHED reference for '{app_name}'")
+                return self.current_app_ref
+
+        # Try to get the app reference directly
+        try:
+            app = self.atomacos.getAppRefByLocalizedName(app_name)
+            app_title = getattr(app, "AXTitle", "")
+            print(f"        [_get_app] getAppRefByLocalizedName returned: {app_title}")
+
+            # Verify the returned app actually matches what we requested
+            if app_title and (
+                app_name.lower() in app_title.lower()
+                or app_title.lower() in app_name.lower()
+            ):
+                print(f"        [_get_app] ✅ App name matches, returning {app_title}")
+                return app
+            else:
+                print(
+                    f"        [_get_app] ❌ WRONG APP! Requested '{app_name}' but got '{app_title}'"
+                )
+                raise ValueError(
+                    f"App name mismatch: requested '{app_name}', got '{app_title}'"
+                )
+        except Exception as e:
+            print(f"        [_get_app] ❌ Failed to get app: {e}")
+
+            # Try running applications list as final attempt (no frontmost fallback!)
+            try:
+                running_apps = self.atomacos.NativeUIElement.runningApplications()
+                for app in running_apps:
+                    if hasattr(app, "AXTitle"):
+                        title = str(app.AXTitle)
+                        if (
+                            app_name.lower() in title.lower()
+                            or title.lower() in app_name.lower()
+                        ):
+                            print(
+                                f"        [_get_app] ✅ Found '{title}' in running apps"
+                            )
+                            return app
+            except Exception:
+                pass
+
+            raise Exception(
+                f"App '{app_name}' not found. Make sure it's opened with open_application first."
+            )
 
     def get_text_from_app(self, app_name: str, role: Optional[str] = None) -> List[str]:
         """
@@ -399,6 +954,7 @@ class MacOSAccessibility:
         try:
             import subprocess
 
+            timing = get_timing_config()
             result = subprocess.run(
                 [
                     "osascript",
@@ -408,7 +964,7 @@ class MacOSAccessibility:
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=2,
+                timeout=timing.applescript_timeout,
             )
             app_name = result.stdout.strip()
             return app_name if app_name else None
@@ -441,16 +997,59 @@ class MacOSAccessibility:
         return False
 
     def _get_app_windows(self, app):
-        """Get all windows for an application."""
-        if hasattr(app, "AXWindows") and app.AXWindows:
-            return app.AXWindows
-        elif hasattr(app, "AXChildren") and app.AXChildren:
-            return [
-                child
-                for child in app.AXChildren
-                if hasattr(child, "AXRole")
-                and str(child.AXRole) in ["AXWindow", "AXSheet", "AXDrawer"]
-            ]
+        """
+        Get all windows for an application.
+        Simple and fast - retries are handled at the app reference level.
+        """
+        if not app:
+            print("      [_get_app_windows] app is None, returning []")
+            return []
+
+        app_title = getattr(app, "AXTitle", "Unknown")
+        print(f"      [_get_app_windows] Checking '{app_title}'...")
+
+        # Try AXWindows first (most common)
+        has_ax_windows = hasattr(app, "AXWindows")
+        print(f"      [_get_app_windows] hasattr(app, 'AXWindows'): {has_ax_windows}")
+
+        if has_ax_windows:
+            ax_windows_val = app.AXWindows
+            print(
+                f"      [_get_app_windows] app.AXWindows = {ax_windows_val} (type: {type(ax_windows_val)})"
+            )
+            if ax_windows_val:
+                windows_list = list(ax_windows_val)
+                print(
+                    f"      [_get_app_windows] ✅ Returning {len(windows_list)} windows via AXWindows"
+                )
+                return windows_list
+            else:
+                print("      [_get_app_windows] app.AXWindows is falsy (empty or None)")
+
+        # Fallback to AXChildren and filter for windows
+        has_ax_children = hasattr(app, "AXChildren")
+        print(f"      [_get_app_windows] hasattr(app, 'AXChildren'): {has_ax_children}")
+
+        if has_ax_children:
+            ax_children_val = app.AXChildren
+            print(
+                f"      [_get_app_windows] app.AXChildren count: {len(ax_children_val) if ax_children_val else 0}"
+            )
+
+            if ax_children_val:
+                windows = [
+                    child
+                    for child in ax_children_val
+                    if hasattr(child, "AXRole")
+                    and str(child.AXRole) in ["AXWindow", "AXSheet", "AXDrawer"]
+                ]
+                print(
+                    f"      [_get_app_windows] Found {len(windows)} window-like children"
+                )
+                if windows:
+                    return windows
+
+        print("      [_get_app_windows] ❌ Returning [] - no windows found")
         return []
 
     def _find_element(self, app, label: str, depth=0):
