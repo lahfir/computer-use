@@ -14,7 +14,11 @@ from ..utils.ui import console
 class ClickInput(BaseModel):
     """Input for clicking an element."""
 
-    target: str = Field(description="Element to click")
+    target: str = Field(description="Element to click (e.g., 'Auto', 'Save button')")
+    visual_context: Optional[str] = Field(
+        default=None,
+        description="CRITICAL: Spatial context REQUIRED! MUST include spatial keywords: 'top', 'bottom', 'left', 'right', 'first', 'last', 'center'. Examples: 'at top', 'bottom right', 'first button'. BAD: 'in theme options' (not spatial!). GOOD: 'theme button at top'.",
+    )
     click_type: str = Field(
         default="single", description="Click type: single, double, or right"
     )
@@ -38,15 +42,17 @@ class ClickElementTool(BaseTool):
     def _run(
         self,
         target: str,
+        visual_context: Optional[str] = None,
         click_type: str = "single",
         current_app: Optional[str] = None,
     ) -> ActionResult:
         """
-        Click element with multi-tier approach.
+        Click element with multi-tier approach + visual context awareness.
         Platform-agnostic implementation using normalized coordinates.
 
         Args:
             target: Element identifier
+            visual_context: Visual/spatial context for disambiguation
             click_type: single/double/right
             current_app: Current app for accessibility
 
@@ -180,10 +186,63 @@ class ClickElementTool(BaseTool):
         except Exception:
             pass
 
-        # Fuzzy matching fallback
+        # Fuzzy matching fallback with spatial filtering
         try:
             all_text = ocr_tool.extract_all_text(ocr_screenshot)
             target_lower = target.lower().strip()
+
+            # SPATIAL FILTERING: Use visual_context to filter candidates
+            if visual_context:
+                context_lower = visual_context.lower()
+                screenshot_height = ocr_screenshot.height
+                screenshot_width = ocr_screenshot.width
+
+                # Filter by vertical position
+                if "top" in context_lower or "above" in context_lower:
+                    all_text = [
+                        item
+                        for item in all_text
+                        if item.center[1] < screenshot_height * 0.4
+                    ]
+                elif "bottom" in context_lower or "below" in context_lower:
+                    all_text = [
+                        item
+                        for item in all_text
+                        if item.center[1] > screenshot_height * 0.6
+                    ]
+                elif "middle" in context_lower or "center" in context_lower:
+                    all_text = [
+                        item
+                        for item in all_text
+                        if screenshot_height * 0.3
+                        < item.center[1]
+                        < screenshot_height * 0.7
+                    ]
+
+                # Filter by horizontal position
+                if "left" in context_lower:
+                    all_text = [
+                        item
+                        for item in all_text
+                        if item.center[0] < screenshot_width * 0.4
+                    ]
+                elif "right" in context_lower:
+                    all_text = [
+                        item
+                        for item in all_text
+                        if item.center[0] > screenshot_width * 0.6
+                    ]
+
+                # Filter by order
+                if "first" in context_lower:
+                    all_text = sorted(
+                        all_text, key=lambda item: (item.center[1], item.center[0])
+                    )[:3]
+                elif "last" in context_lower:
+                    all_text = sorted(
+                        all_text, key=lambda item: (item.center[1], item.center[0])
+                    )[-3:]
+
             best_match = None
             best_score = -999
 

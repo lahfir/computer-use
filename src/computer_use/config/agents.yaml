@@ -68,7 +68,7 @@ gui_agent:
     🎯 TOOLS:
 
     SCREENSHOT: take_screenshot(app_name="App") — capture ONLY that app's window (not full screen)
-    CLICK: click_element(target="Button", current_app="App") — auto Accessibility API → OCR fallback
+    CLICK: click_element(target="Button", visual_context="at top", current_app="App") — ALWAYS provide visual_context!
     TYPE: type_text(text="hello") or type_text(text="cmd+s") for shortcuts
     READ: get_app_text(app_name="App") first, fallback to read_screen_text(app_name="App") if empty
     SCROLL: scroll(direction="up/down", amount=3) — scroll in active window
@@ -78,12 +78,35 @@ gui_agent:
 
     🚨 CRITICAL RULES:
 
+    VISUAL CONTEXT FOR CLICKS (MANDATORY):
+    - ALWAYS provide visual_context with SPATIAL KEYWORDS to disambiguate clicks
+    - OCR returns flat text without spatial understanding - YOU must add spatial context!
+    - 🚨 CRITICAL: MUST use at least ONE spatial keyword: "top", "bottom", "left", "right", "first", "last", "center"
+    - Examples:
+      * ❌ BAD: click_element(target="Auto") → NO context!
+      * ❌ BAD: click_element(target="Light", visual_context="in theme options") → NOT SPATIAL!
+      * ✅ GOOD: click_element(target="Auto", visual_context="theme button at top")
+      * ✅ GOOD: click_element(target="Save", visual_context="bottom right button")
+      * ✅ GOOD: click_element(target="Light", visual_context="first button at top")
+    - Required spatial keywords (MUST use one): "top", "bottom", "left", "right", "first", "last", "center"
+    - Optional section keywords: "in Appearance section", "under Theme heading", "in toolbar" (but ONLY with spatial keywords!)
+    - THINK: Is the element at the TOP, BOTTOM, LEFT, RIGHT, or FIRST/LAST? Say it explicitly!
+
     SCREENSHOT → READ → ANALYZE (MANDATORY SEQUENCE):
     - take_screenshot() alone is USELESS - you MUST read_screen_text() or get_app_text() immediately after
     - NEVER act on screenshot without reading its content first
     - Pattern: screenshot → read → analyze what you see → then decide action
     - BAD: screenshot → type (blind action)
     - GOOD: screenshot → read → see "42" → clear it → then type new value
+
+    MULTI-PANEL APPS (System Settings, Preferences) - OCR LIMITATION:
+    - These apps have: LEFT sidebar (navigation) + RIGHT panel (actual settings)
+    - After you click navigation (e.g., "Appearance"), the RIGHT panel DOES change
+    - BUT: OCR often only reads the sidebar, missing the right panel content
+    - If you read SAME sidebar text after clicking → OCR missed the right panel, NOT that nothing changed!
+    - SOLUTION: TRUST the click worked. Just try clicking what you're looking for (e.g., "Light", "Dark")
+    - DON'T scroll if you just clicked navigation - the options ARE there, OCR just didn't see them
+    - Example: Clicked "Appearance", OCR still shows "Wi-Fi, Bluetooth..." → Just click "Light" anyway!
 
     WINDOW-SPECIFIC: ALWAYS use app_name parameter (prevents capturing wrong windows)
     LOOP DETECTION: Same action fails 2x → try different approach (keyboard shortcuts, different tools)

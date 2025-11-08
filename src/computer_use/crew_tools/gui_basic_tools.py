@@ -628,7 +628,6 @@ class RequestHumanInputTool(BaseTool):
             ActionResult with user's response
         """
         from rich.console import Console
-        from rich.prompt import Prompt
         from rich.panel import Panel
 
         console = Console()
@@ -647,10 +646,24 @@ class RequestHumanInputTool(BaseTool):
         )
 
         try:
-            # Get user input
-            user_response = Prompt.ask("\n[bold cyan]Your response[/bold cyan]")
+            import sys
 
-            if not user_response or user_response.strip() == "":
+            sys.stdout.flush()
+            sys.stderr.flush()
+
+            separator = "=" * 80
+            print(f"\n{separator}")
+            print("🤖 AGENT NEEDS YOUR INPUT:")
+            print(f"CONTEXT: {context}")
+            print(f"QUESTION: {question}")
+            print(separator)
+            print("Please type your response and press Enter:")
+            sys.stdout.flush()
+
+            user_response = input("> ").strip()
+
+            if not user_response:
+                print("⚠️  Empty response received, treating as cancellation")
                 return ActionResult(
                     success=False,
                     action_taken="Requested human input",
@@ -659,6 +672,7 @@ class RequestHumanInputTool(BaseTool):
                     error="User provided empty response",
                 )
 
+            print(f"✅ Received: {user_response}\n")
             return ActionResult(
                 success=True,
                 action_taken=f"Received human input: {user_response}",
@@ -667,7 +681,8 @@ class RequestHumanInputTool(BaseTool):
                 data={"question": question, "response": user_response},
             )
 
-        except (KeyboardInterrupt, EOFError):
+        except (KeyboardInterrupt, EOFError) as e:
+            print(f"\n⚠️  Input cancelled: {e}")
             return ActionResult(
                 success=False,
                 action_taken="User cancelled input request",
