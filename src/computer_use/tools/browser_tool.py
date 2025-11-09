@@ -56,6 +56,58 @@ class BrowserTool:
             print("Browser-Use not available. Install with: pip install browser-use")
             return False
 
+    def _build_tool_context(self) -> str:
+        """
+        Build tool context string for Browser-Use Agent.
+        Explains available Twilio and human assistance tools.
+
+        Returns:
+            Formatted tool documentation string
+        """
+        context = "🔧 AVAILABLE TOOLS:\n\n"
+
+        if self.twilio_tools:
+            context += """📱 PHONE VERIFICATION TOOLS:
+• get_verification_phone_number() - Get Twilio phone number for SMS verification
+  → Use when task doesn't provide a phone number
+  → Returns phone string (e.g., "+1234567890")
+
+• get_verification_code(timeout=60, poll_interval=1.0) - Wait for and retrieve SMS code
+  → Call AFTER submitting phone number
+  → Returns verification code from SMS
+
+• check_twilio_status() - Check if Twilio is configured
+  → Verify service availability before phone verification workflow
+
+PHONE VERIFICATION WORKFLOW:
+1. Check if task provides phone number
+2. If NO → call get_verification_phone_number()
+3. Parse number format to match form (with/without country code)
+4. Enter phone and submit
+5. Call get_verification_code(timeout=60)
+6. Enter code and complete verification
+
+"""
+        context += """🤝 HUMAN ASSISTANCE TOOL:
+• request_human_help(reason, instructions) - Request human intervention
+  → Use for: Visual CAPTCHAs, QR codes, biometric auth
+  → Provide clear reason and instructions
+  → Example: request_human_help(
+      reason="Visual CAPTCHA detected",
+      instructions="Please solve the traffic light CAPTCHA on the current page"
+    )
+
+🚨 CRITICAL RULES:
+- Use ONLY credentials provided in task (NO test@gmail.com or placeholders!)
+- If task provides phone → use it; if not → get_verification_phone_number()
+- Visual CAPTCHA → request_human_help() IMMEDIATELY
+- QR code → request_human_help() IMMEDIATELY
+- Try 2-3 approaches before escalating
+- Never mark complete on failure
+
+"""
+        return context
+
     async def execute_task(self, task: str, url: Optional[str] = None) -> ActionResult:
         """
         Execute a web automation task using Browser-Use Agent.
@@ -97,7 +149,9 @@ class BrowserTool:
             browser_use_logger = logging.getLogger("browser_use")
             browser_use_logger.setLevel(logging.DEBUG)
 
-            full_task = f"Navigate to {url} and {task}" if url else task
+            # Build task with tool context - let Browser-Use decide navigation
+            tool_context = self._build_tool_context()
+            full_task = tool_context + "\n\n" + task
 
             temp_dir = Path(tempfile.mkdtemp(prefix="browser_agent_"))
 

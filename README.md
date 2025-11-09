@@ -1,899 +1,392 @@
 # Computer Use Agent
 
-**Enterprise-Grade Cross-Platform Autonomous Desktop & Web Automation Framework**
+**Automate your computer like you actually know what you're doing**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Browser-Use](https://img.shields.io/badge/Browser--Use-v0.9.4+-orange.svg)](https://browser-use.com/)
 
-A production-ready, multi-agent autonomous automation framework that achieves 99%+ accuracy through a sophisticated multi-tier detection system combining platform-native accessibility APIs, computer vision, OCR, and vision-enabled language models.
+Ever wish you could just tell your computer what to do and have it... actually do it? Like, "download that file and put it in Excel" or "sign me up for that account" and it just... works?
+
+That's what this is. It's an AI agent system that actually understands what you want and figures out how to do it across macOS, Windows, and Linux. No more brittle scripts that break when someone moves a button. No more platform-specific hacks. Just... automation that works.
 
 ---
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Key Features](#key-features)
-- [Quick Start](#quick-start)
-- [Architecture](#architecture)
-- [Technology Stack](#technology-stack)
+- [What This Actually Does](#what-this-actually-does)
+- [Why You'd Want This](#why-youd-want-this)
+- [How It Works (The Simple Version)](#how-it-works-the-simple-version)
+- [What Makes It Different](#what-makes-it-different)
+- [Platform Support](#platform-support)
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Usage](#usage)
-- [API Reference](#api-reference)
-- [Accuracy & Performance](#accuracy--performance)
-- [Security & Safety](#security--safety)
-- [Platform Support](#platform-support)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [License](#license)
 
 ---
 
-## Overview
+## What This Actually Does
 
-Computer Use Agent is an enterprise-grade automation framework that enables autonomous interaction with desktop applications, web browsers, and system operations across macOS, Windows, and Linux platforms. Built on CrewAI's multi-agent orchestration framework and Browser-Use's web automation capabilities, it provides a robust solution for complex automation workflows.
+Okay, so here's the deal. You know how most automation tools are either:
 
-### Problem Statement
+- Super fragile (breaks if someone changes a button color)
+- Platform-specific (only works on Mac, or only Windows)
+- Dumb as rocks (can't adapt to changes)
 
-Traditional automation tools face significant challenges:
+This fixes all of that. Computer Use Agent has multiple AI agents that specialize in different things. Think of it like having a team where one person is really good at web stuff, another is great with desktop apps, and another handles command-line things. They work together to figure out how to do what you want.
 
-- **Coordinate Brittleness**: Hard-coded pixel coordinates break with UI changes
-- **Cross-Platform Inconsistency**: Platform-specific implementations
-- **Low Accuracy**: Vision-only approaches achieve 70-85% accuracy
-- **No Fallback Mechanisms**: Single point of failure
-
-### Solution
-
-Our multi-tier accuracy system addresses these challenges:
-
-1. **Tier 1 - Platform Accessibility APIs (100% accuracy)**: Native OS-level element detection
-2. **Tier 2 - Computer Vision + OCR (95-99% accuracy)**: Visual element recognition
-3. **Tier 3 - Vision Language Models (85-95% accuracy)**: Semantic understanding fallback
-
-**Result**: 99%+ combined accuracy through intelligent cascading fallback mechanisms.
+The system uses what I call a "multi-tier accuracy system" — basically, it tries the most accurate method first (using your OS's built-in accessibility features), and if that doesn't work, it falls back to reading the screen with OCR, and if that fails, it uses vision AI. The result? It actually works 99% of the time instead of breaking constantly.
 
 ---
 
-## Key Features
+## Why You'd Want This
 
-### Multi-Agent Architecture
+Let me paint you a picture. You're trying to automate something — maybe downloading reports and putting them in a spreadsheet. Traditional tools would have you:
 
-- **Coordinator Agent**: Intelligent task analysis and routing
-- **Browser Agent**: Full web automation via Browser-Use integration
-- **GUI Agent**: Desktop application control with multi-tier accuracy
-- **System Agent**: Safe file system and terminal operations
+1. Hard-code pixel coordinates (breaks when the UI changes)
+2. Write platform-specific code (can't share with your team on different OSes)
+3. Hope your vision-only approach works (spoiler: it won't, consistently)
 
-### Multi-Tier Accuracy System
+This system? You just say "download the Tesla stock report and create a chart in Excel" and it figures out:
 
-- **100% Accurate Tier 1**: macOS NSAccessibility, Windows UI Automation, Linux AT-SPI
-- **95-99% Accurate Tier 2**: EasyOCR text detection, OpenCV template matching
-- **85-95% Accurate Tier 3**: Vision-enabled LLM semantic understanding
-- **Automatic Fallback**: Seamless degradation between tiers
+- Which agent should handle the download (the browser specialist)
+- Which agent should handle Excel (the desktop app specialist)
+- How to pass the file between them (the system handles this automatically)
+- What to do if something goes wrong (it has fallbacks)
 
-### Enterprise-Ready Features
-
-- ✅ Cross-platform support (macOS, Windows, Linux)
-- ✅ Provider-agnostic LLM integration (OpenAI, Anthropic, Google, Ollama)
-- ✅ Automated phone verification (Twilio SMS integration)
-- ✅ Comprehensive safety validation
-- ✅ Structured logging and error handling
-- ✅ Rate limiting and coordinate validation
-- ✅ Protected path detection
-- ✅ Destructive operation confirmation
-
-### Supported Actions
-
-| Action         | Description                   | Accuracy Method              |
-| -------------- | ----------------------------- | ---------------------------- |
-| `click`        | Single click on UI element    | Accessibility → OCR → Vision |
-| `double_click` | Double-click on element       | Accessibility → OCR → Vision |
-| `right_click`  | Context menu activation       | Accessibility → OCR → Vision |
-| `type`         | Keyboard text input           | Native keyboard events       |
-| `scroll`       | Vertical/horizontal scrolling | Native scroll events         |
-| `open_app`     | Application launching         | Platform process management  |
-| `read`         | Screen text extraction        | OCR recognition              |
-| `navigate`     | Web page navigation           | Browser-Use automation       |
-| `download`     | File downloads                | Browser-Use automation       |
-| `verify_phone` | SMS verification automation   | Twilio integration           |
+It's like having a really smart assistant who actually understands computers.
 
 ---
 
-## Quick Start
+## How It Works (The Simple Version)
 
-### One-Line Installation
-
-```bash
-./install.sh
-```
-
-The automated installer handles:
-
-- Platform detection (macOS/Windows/Linux)
-- UV package manager installation
-- Python 3.11+ dependency management
-- Platform-specific libraries (atomacos, pywinauto, pyatspi)
-- Environment configuration
-- Installation verification
-
-**Installation time**: ~2 minutes
-
-### Basic Usage
-
-```bash
-# Run the agent
-uv run python -m computer_use.main
-```
-
-**Example Tasks**:
+Here's the flow, simplified:
 
 ```
-> Download HD image of Cristiano Ronaldo
-> Open Calculator and compute 1234 × 5678
-> Create folder named "reports" in Documents
-> Move file from Downloads to Documents folder
-> Sign up on website with phone verification
+You: "Download that report and make a chart"
+
+Manager Agent (the coordinator):
+  "Okay, this needs two things:
+   1. Browser agent downloads the file
+   2. GUI agent opens Excel and makes the chart
+   Let me break this down..."
+
+Browser Agent:
+  "Got it. I'll navigate to the site, find the download,
+   grab the file, and tell the next agent where it is."
+
+GUI Agent:
+  "Perfect. I see the file path from the browser agent.
+   Let me open Excel, import that file, and create the chart."
+
+You: *gets what you asked for*
 ```
+
+The cool part? The system handles all the "passing information between agents" stuff automatically. You don't have to manually serialize data or manage context. It just... works.
 
 ---
 
-## Architecture
+## What Makes It Different
 
-### System Design
+### It Actually Understands What You Want
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     User Input                               │
-└──────────────────────┬──────────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────────┐
-│              Coordinator Agent (LLM)                         │
-│  • Analyzes task intent                                      │
-│  • Classifies task type (Browser/GUI/System/Hybrid)         │
-│  • Routes to appropriate specialist agent                    │
-└──────────────────────┬──────────────────────────────────────┘
-                       │
-        ┌──────────────┼──────────────┬──────────────┐
-        │              │               │              │
-        ▼              ▼               ▼              ▼
-┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌──────────┐
-│   Browser   │ │     GUI     │ │   System    │ │  Hybrid  │
-│    Agent    │ │    Agent    │ │    Agent    │ │  Routing │
-└─────────────┘ └─────────────┘ └─────────────┘ └──────────┘
-        │              │               │
-        ▼              ▼               ▼
-┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-│ Browser-Use │ │ Multi-Tier  │ │  Validated  │
-│  Automation │ │  Detection  │ │  Commands   │
-└─────────────┘ └─────────────┘ └─────────────┘
-```
+Instead of hard-coding "click button at X,Y coordinates," it uses AI to understand what you're asking for and figures out the best way to do it. The manager agent breaks down your request into subtasks and assigns them to the right specialist.
 
-### Multi-Tier Detection Flow
+### It Works Across Platforms
 
-```python
-async def detect_and_click(target: str):
-    """
-    Intelligent multi-tier element detection with automatic fallback.
-    """
-    # Tier 1: Platform Accessibility API (100% accurate)
-    try:
-        element = accessibility_api.find_element(target)
-        if element:
-            return click(element.coordinates)  # OS-provided coordinates
-    except AccessibilityError:
-        pass  # Fall through to Tier 2
+macOS? Windows? Linux? Doesn't matter. The system detects your platform and uses the right tools:
 
-    # Tier 2: Computer Vision + OCR (95-99% accurate)
-    try:
-        screenshot = capture_screen()
-        element = ocr_detector.find_text(screenshot, target)
-        if element and element.confidence > 0.85:
-            return click(element.coordinates)  # Validated coordinates
-    except DetectionError:
-        pass  # Fall through to Tier 3
+- **macOS**: Uses NSAccessibility (the same thing VoiceOver uses)
+- **Windows**: Uses UI Automation (built into Windows)
+- **Linux**: Uses AT-SPI (the accessibility standard)
 
-    # Tier 3: Vision Language Model (85-95% accurate)
-    screenshot = capture_screen()
-    coordinates = vision_llm.locate_element(screenshot, target)
-    if validate_coordinates(coordinates):
-        return click(coordinates)
+All of these give you 100% accurate element detection when apps support accessibility. And when they don't? It falls back to reading the screen.
 
-    raise ElementNotFoundError(f"Could not locate: {target}")
-```
+### It Has Fallbacks
+
+Here's the accuracy system in plain English:
+
+**Tier 1 (100% accurate)**: Uses your OS's accessibility features. Like asking the app directly "where's the submit button?" Works perfectly... when apps support it.
+
+**Tier 2 (95-99% accurate)**: Reads the screen with OCR. It can find text even if the app doesn't expose it through accessibility. Uses EasyOCR, PaddleOCR, or macOS's built-in Vision framework depending on what's available.
+
+**Tier 3 (85-95% accurate)**: Uses vision AI (like GPT-4V or Claude) to understand what's on screen. This is the fallback when text isn't readable or you need semantic understanding.
+
+The system tries Tier 1 first, then falls back automatically. You don't have to think about it.
+
+### It's Built for Real Work
+
+- Phone verification? Handles it with Twilio integration
+- File downloads? Tracks them automatically and passes paths to other agents
+- Safety checks? Validates commands before running them
+- Error handling? Actually tells you what went wrong
 
 ---
 
-## Technology Stack
+## Platform Support
 
-### Core Frameworks
+### macOS (10.14+)
 
-#### CrewAI (v0.86.0+)
+Works great on Mac. Uses atomacos to talk to NSAccessibility (the same API that powers VoiceOver). If you've ever used accessibility features on Mac, you know how reliable they are — that's what this uses.
 
-**Multi-Agent Orchestration Framework**
+**What you need to do**: Grant accessibility permissions in System Settings. That's it. The installer will remind you.
 
-- **Repository**: [joaomdmoura/crewAI](https://github.com/joaomdmoura/crewAI)
-- **Documentation**: [crewai.com](https://www.crewai.com/)
-- **Purpose**: Coordinates specialized AI agents for complex task execution
-- **License**: MIT
+**What works**: TextEdit, Calculator, Finder, System Settings, basically any app that supports accessibility (which is most of them).
 
-#### Browser-Use (v0.1.28+)
+### Windows (10+)
 
-**Web Automation Engine**
+Uses pywinauto to talk to Windows UI Automation. Same thing Windows uses internally for accessibility features.
 
-- **Repository**: [browser-use/browser-use](https://github.com/browser-use/browser-use)
-- **Documentation**: [browser-use.com](https://browser-use.com/)
-- **Purpose**: Autonomous web browser control and interaction
-- **License**: MIT
+**What you need to do**: Run as Administrator for full access. That's really it.
 
-### LLM Integration
+**What works**: Calculator, Notepad, File Explorer, Settings app, most modern Windows apps.
 
-#### LangChain (Latest)
+### Linux (Ubuntu 20.04+, Debian 11+)
 
-**LLM Framework and Utilities**
+Uses pyatspi to talk to AT-SPI, which is the Linux accessibility standard. Works with GNOME, KDE, and other desktop environments.
 
-- **Packages**:
-  - `langchain-openai` - OpenAI integration (GPT-4, GPT-4V, GPT-3.5)
-  - `langchain-anthropic` - Anthropic integration (Claude 3.5 Sonnet, Claude 3)
-  - `langchain-google-genai` - Google integration (Gemini 2.0, Gemini 1.5)
-  - `langchain-community` - Community providers and tools
-- **Repository**: [langchain-ai/langchain](https://github.com/langchain-ai/langchain)
-- **Documentation**: [python.langchain.com](https://python.langchain.com/)
-- **Purpose**: Unified LLM interface and chain management
-- **License**: MIT
+**What you need to do**: Install `python3-pyatspi` (the installer handles this). Make sure you're running X11 (Wayland support is coming).
 
-### Computer Vision & OCR
-
-#### EasyOCR (v1.7.0+)
-
-**Optical Character Recognition**
-
-- **Repository**: [JaidedAI/EasyOCR](https://github.com/JaidedAI/EasyOCR)
-- **Documentation**: [jaided.ai/easyocr](https://www.jaided.ai/easyocr/)
-- **Purpose**: Text detection and recognition from screenshots
-- **Supported Languages**: 80+ languages
-- **License**: Apache 2.0
-
-#### OpenCV (v4.8.0+)
-
-**Computer Vision Library**
-
-- **Package**: `opencv-python`
-- **Repository**: [opencv/opencv](https://github.com/opencv/opencv)
-- **Documentation**: [opencv.org](https://opencv.org/)
-- **Purpose**: Template matching, image processing
-- **License**: Apache 2.0
-
-### Platform Accessibility APIs
-
-#### macOS - atomacos (v0.5.0+)
-
-**macOS Accessibility API Wrapper**
-
-- **Repository**: [pyatom/pyatom](https://github.com/pyatom/pyatom)
-- **Purpose**: Interface to NSAccessibility framework
-- **Accuracy**: 100% (OS-provided coordinates)
-- **License**: MIT
-
-#### Windows - pywinauto (v0.6.8+)
-
-**Windows UI Automation**
-
-- **Repository**: [pywinauto/pywinauto](https://github.com/pywinauto/pywinauto)
-- **Documentation**: [pywinauto.readthedocs.io](https://pywinauto.readthedocs.io/)
-- **Purpose**: Windows UI Automation API wrapper
-- **Accuracy**: 100% (OS-provided coordinates)
-- **License**: BSD-3-Clause
-
-#### Linux - pyatspi
-
-**Linux AT-SPI Interface**
-
-- **Package**: `python3-pyatspi`
-- **Purpose**: Assistive Technology Service Provider Interface
-- **Accuracy**: 100% (OS-provided coordinates)
-- **License**: LGPL
-
-### Input & Screenshot Control
-
-#### PyAutoGUI (v0.9.54+)
-
-**Cross-Platform GUI Automation**
-
-- **Repository**: [asweigart/pyautogui](https://github.com/asweigart/pyautogui)
-- **Documentation**: [pyautogui.readthedocs.io](https://pyautogui.readthedocs.io/)
-- **Purpose**: Mouse/keyboard control, screenshot capture
-- **License**: BSD-3-Clause
-
-#### Pillow (v10.0.0+)
-
-**Python Imaging Library**
-
-- **Repository**: [python-pillow/Pillow](https://github.com/python-pillow/Pillow)
-- **Documentation**: [pillow.readthedocs.io](https://pillow.readthedocs.io/)
-- **Purpose**: Image processing and manipulation
-- **License**: PIL Software License
-
-### Supporting Libraries
-
-#### Pydantic (v2.0.0+)
-
-**Data Validation**
-
-- **Purpose**: Schema validation, structured outputs
-- **License**: MIT
-
-#### python-dotenv (v1.0.0+)
-
-**Environment Management**
-
-- **Purpose**: Configuration and API key management
-- **License**: BSD-3-Clause
-
-#### psutil (v5.9.0+)
-
-**System Utilities**
-
-- **Purpose**: Process management, system monitoring
-- **License**: BSD-3-Clause
-
-#### NumPy (v1.24.0+)
-
-**Numerical Computing**
-
-- **Purpose**: Array operations for computer vision
-- **License**: BSD-3-Clause
-
-#### PyYAML (v6.0.0+)
-
-**YAML Parser**
-
-- **Purpose**: Configuration file management
-- **License**: MIT
+**What works**: gedit, GNOME Calculator, Files, most GTK apps.
 
 ---
 
 ## Installation
 
-### Prerequisites
-
-- **Python**: 3.11 or higher
-- **Operating System**: macOS 10.14+, Windows 10+, Ubuntu 20.04+
-- **Memory**: 4GB RAM minimum, 8GB recommended
-- **Storage**: 2GB free space for dependencies
-
-### Automated Installation (Recommended)
+### The Easy Way
 
 ```bash
-# Clone repository
+# Clone it
 git clone https://github.com/yourusername/computer-use.git
 cd computer-use
 
-# Run installer
+# Run the installer (it figures out your platform)
 ./install.sh
 ```
 
-The installer automatically:
+The installer does everything:
 
-1. Detects your operating system
-2. Installs UV package manager if not present
-3. Verifies Python 3.11+ availability
-4. Installs platform-specific dependencies:
-   - **macOS**: atomacos, pyobjc frameworks
-   - **Windows**: pywinauto, comtypes
-   - **Linux**: python3-pyatspi
-5. Creates `.env` configuration file
-6. Prompts for API key configuration
-7. Runs installation verification tests
+- Detects your OS
+- Installs the right dependencies
+- Sets up permissions (on Mac)
+- Verifies everything works
 
-### Manual Installation
+Takes about 2 minutes. Seriously.
 
-```bash
-# Install UV package manager
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Install dependencies (platform-specific)
-uv sync --extra macos    # For macOS
-uv sync --extra windows  # For Windows
-uv sync --extra linux    # For Linux
-
-# Create configuration
-cp .env.example .env
-nano .env  # Add your API keys
-```
-
-### Platform-Specific Setup
+### The Manual Way (If You're Into That)
 
 #### macOS
 
 ```bash
-# Grant Accessibility permissions
+# Install UV (the package manager we use)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install with Mac-specific stuff
+uv sync --extra macos
+
+# Grant permissions
 # System Settings → Privacy & Security → Accessibility
-# Add Terminal or your IDE to allowed applications
-```
-
-#### Linux (Ubuntu/Debian)
-
-```bash
-# Install system dependencies
-sudo apt-get update
-sudo apt-get install python3-pyatspi python3-xlib
+# Add Terminal (or your IDE) to the list
 ```
 
 #### Windows
 
 ```bash
-# Run as Administrator for UI Automation access
-# No additional system configuration required
+# Install UV
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Install with Windows stuff
+uv sync --extra windows
+
+# Run as Admin (recommended)
+```
+
+#### Linux
+
+```bash
+# Install UV
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install system deps
+sudo apt-get update
+sudo apt-get install -y python3-pyatspi python3-xlib
+
+# Install with Linux stuff
+uv sync --extra linux
 ```
 
 ---
 
 ## Configuration
 
-### Environment Variables
+You'll need API keys for the AI models. Don't worry, there are free options.
 
 Create a `.env` file in the project root:
 
 ```bash
-# ==============================================
-# LLM Provider Configuration
-# ==============================================
+# Main LLM (for general tasks)
+LLM_PROVIDER=google
+LLM_MODEL=gemini-2.0-flash-exp  # Free tier available!
 
-# Main LLM (Coordination, Browser, System tasks)
-LLM_PROVIDER=openai              # Options: openai, anthropic, google, ollama
-LLM_MODEL=gpt-4o-mini           # Cost-effective general model
+# Vision LLM (for reading screenshots)
+VISION_LLM_PROVIDER=google
+VISION_LLM_MODEL=gemini-2.0-flash-exp
 
-# Vision LLM (GUI Screenshot Analysis)
-VISION_LLM_PROVIDER=openai      # Must support vision
-VISION_LLM_MODEL=gpt-4o         # Vision-capable model
+# Browser LLM (for web automation)
+BROWSER_LLM_PROVIDER=google
+BROWSER_LLM_MODEL=gemini-2.0-flash-exp
 
-# ==============================================
-# API Keys
-# ==============================================
+# Your API key
+GOOGLE_API_KEY=your_key_here
+```
 
-# OpenAI (Required for OpenAI models)
-OPENAI_API_KEY=sk-...
+**Free option**: Google Gemini has a free tier. Perfect for getting started.
 
-# Anthropic (Optional)
-ANTHROPIC_API_KEY=sk-ant-...
+**If you want better accuracy**: Use OpenAI's GPT-4o or Anthropic's Claude. Costs money, but they're really good.
 
-# Google (Optional)
-GOOGLE_API_KEY=...
+**For phone verification** (optional):
 
-# Ollama (Optional - for local models)
-OLLAMA_BASE_URL=http://localhost:11434
-
-# ==============================================
-# Browser Automation (Optional)
-# ==============================================
-
-# Serper API for web search (Browser-Use)
-SERPER_API_KEY=...
-
-# ==============================================
-# Phone Verification (Optional)
-# ==============================================
-
-# Twilio for SMS verification automation
-TWILIO_ACCOUNT_SID=...
-TWILIO_AUTH_TOKEN=...
+```bash
+TWILIO_ACCOUNT_SID=your_sid
+TWILIO_AUTH_TOKEN=your_token
 TWILIO_PHONE_NUMBER=+1234567890
 ```
 
-### Supported LLM Models
-
-#### OpenAI
-
-- `gpt-4o` - Latest model with vision (recommended for GUI)
-- `gpt-4o-mini` - Cost-effective with vision
-- `gpt-4-turbo` - High performance
-- `gpt-3.5-turbo` - Budget option (no vision)
-
-#### Anthropic
-
-- `claude-3-5-sonnet-20241022` - Latest Claude 3.5
-- `claude-3-sonnet` - Claude 3
-- `claude-3-opus` - Highest capability
-
-#### Google
-
-- `gemini-2.0-flash-exp` - Fast experimental model
-- `gemini-1.5-pro` - Production model
-- `gemini-1.5-flash` - Budget option
-
-#### Ollama (Local)
-
-- Any model installed locally
-- Example: `llama3.2-vision`, `mistral`
-
-### Cost Optimization
-
-**Recommended Configuration** (Best value):
-
-```bash
-LLM_PROVIDER=openai
-LLM_MODEL=gpt-4o-mini          # $0.15/1M input tokens
-
-VISION_LLM_PROVIDER=google
-VISION_LLM_MODEL=gemini-2.0-flash-exp  # Free tier available
-```
-
-**Premium Configuration** (Highest accuracy):
-
-```bash
-LLM_PROVIDER=anthropic
-LLM_MODEL=claude-3-5-sonnet-20241022
-
-VISION_LLM_PROVIDER=openai
-VISION_LLM_MODEL=gpt-4o
-```
+Only needed if you want automated phone verification for signups. The system works fine without it.
 
 ---
 
 ## Usage
 
-### Command Line Interface
+### Basic Usage
 
 ```bash
-# Interactive mode
+# Just run it
 uv run python -m computer_use.main
-
-# Example session:
-💬 Enter task (or 'quit' to exit): Download HD image of Ronaldo
-
-⏳ Processing task: Download HD image of Ronaldo
-
-============================================================
-  ANALYZING TASK
-============================================================
-
-  📝 Download HD image of Ronaldo
-
-────────────────────────────────────────────────────────────
-  TASK CLASSIFICATION
-────────────────────────────────────────────────────────────
-
-  🎯 Type: BROWSER
-  🌐 Browser: Yes
-  🖥️  GUI: No
-  ⚙️  System: No
-  💭 Reasoning: Task requires web navigation and image download
-
-────────────────────────────────────────────────────────────
-  BROWSER AGENT EXECUTING
-────────────────────────────────────────────────────────────
-
-  🔄 Browser-Use agent started...
-  ✅ Image downloaded successfully!
-
-============================================================
-  TASK COMPLETE
-============================================================
 ```
 
-### Programmatic API
+Then type what you want:
+
+```
+💬 Enter your task:
+➤ Download image of Cristiano Ronaldo
+```
+
+The system figures out:
+
+- You want web automation (browser agent)
+- It needs to search for images
+- It needs to download one
+- It handles all the details
+
+### Real Examples
+
+**Web stuff**:
+
+```
+> Download HD image of Cristiano Ronaldo
+> Search for Tesla stock price and save to file
+> Sign up for account on website with phone verification
+```
+
+**Desktop apps**:
+
+```
+> Open Calculator and compute 1234 × 5678
+> Create new document in TextEdit with content "Hello World"
+> Open System Settings and change theme to dark mode
+```
+
+**System stuff**:
+
+```
+> Create folder named "reports" in Documents
+> Move all PDF files from Downloads to Documents
+> List all Python files in current directory
+```
+
+**Complex workflows**:
+
+```
+> Download census data and create chart in Excel
+> Research fashion trends on census.gov and create presentation
+```
+
+The system breaks these down automatically. "Download and create chart" becomes two tasks: browser downloads, GUI creates chart. The agents automatically pass the file between them.
+
+### Programmatic Usage
+
+If you want to use it in code:
 
 ```python
 from computer_use.crew import ComputerUseCrew
 from computer_use.utils.platform_detector import detect_platform
 from computer_use.utils.safety_checker import SafetyChecker
 
-# Initialize components
+# Set it up
 capabilities = detect_platform()
 safety_checker = SafetyChecker()
 crew = ComputerUseCrew(capabilities, safety_checker)
 
-# Execute task
+# Use it
 result = await crew.execute_task("Open Calculator and compute 25 × 36")
 
-# Check result
 if result['overall_success']:
-    print("Task completed successfully!")
-    print(f"Results: {result['results']}")
+    print("✅ Done!")
 else:
-    print(f"Task failed: {result.get('error')}")
+    print(f"❌ Failed: {result.get('error')}")
 ```
-
-### Advanced Usage
-
-#### Custom LLM Configuration
-
-```python
-from computer_use.config.llm_config import LLMConfig
-from computer_use.crew import ComputerUseCrew
-
-# Configure custom models
-main_llm = LLMConfig.get_llm(
-    provider="anthropic",
-    model="claude-3-5-sonnet-20241022"
-)
-
-vision_llm = LLMConfig.get_vision_llm(
-    provider="google",
-    model="gemini-2.0-flash-exp"
-)
-
-# Initialize crew with custom LLMs
-crew = ComputerUseCrew(
-    capabilities,
-    safety_checker,
-    llm_client=main_llm,
-    vision_llm_client=vision_llm
-)
-```
-
-#### Task Batching
-
-```python
-tasks = [
-    "Download quarterly report PDF",
-    "Open Excel and import the data",
-    "Create summary visualization",
-    "Save to Documents folder"
-]
-
-results = []
-for task in tasks:
-    result = await crew.execute_task(task)
-    results.append(result)
-    if not result['overall_success']:
-        print(f"Failed at step: {task}")
-        break
-```
-
----
-
-## API Reference
-
-### Core Classes
-
-#### ComputerUseCrew
-
-```python
-class ComputerUseCrew:
-    """
-    Main orchestration class for multi-agent automation.
-
-    Attributes:
-        capabilities (PlatformCapabilities): Detected platform features
-        safety_checker (SafetyChecker): Safety validation engine
-        llm (BaseChatModel): Main language model
-        vision_llm (BaseChatModel): Vision-capable language model
-    """
-
-    def __init__(
-        self,
-        capabilities: PlatformCapabilities,
-        safety_checker: SafetyChecker,
-        llm_client: Optional[BaseChatModel] = None,
-        vision_llm_client: Optional[BaseChatModel] = None
-    ):
-        """
-        Initialize crew with platform capabilities and safety checker.
-
-        Args:
-            capabilities: Platform detection results
-            safety_checker: Safety validation instance
-            llm_client: Optional custom LLM for general tasks
-            vision_llm_client: Optional custom LLM for vision tasks
-        """
-
-    async def execute_task(self, task: str) -> Dict[str, Any]:
-        """
-        Execute automation task with multi-agent coordination.
-
-        Args:
-            task: Natural language task description
-
-        Returns:
-            Dictionary containing:
-                - task: Original task string
-                - analysis: Task classification results
-                - results: List of agent execution results
-                - overall_success: Boolean success indicator
-
-        Raises:
-            TaskExecutionError: If task cannot be completed
-        """
-```
-
-#### PlatformDetector
-
-```python
-def detect_platform() -> PlatformCapabilities:
-    """
-    Detect current platform capabilities.
-
-    Returns:
-        PlatformCapabilities object with:
-            - os_type: Operating system (macos/windows/linux)
-            - os_version: Version string
-            - screen_resolution: Tuple[int, int]
-            - accessibility_api_available: bool
-            - supported_tools: List[str]
-    """
-```
-
-#### SafetyChecker
-
-```python
-class SafetyChecker:
-    """
-    Validates operations for safety before execution.
-    """
-
-    def is_destructive(self, command: str) -> bool:
-        """Check if command is potentially destructive."""
-
-    def is_protected_path(self, path: str) -> bool:
-        """Check if path is in protected system directories."""
-
-    def validate_coordinates(self, x: int, y: int) -> Tuple[bool, str]:
-        """Validate click coordinates are safe."""
-```
-
----
-
-## Accuracy & Performance
-
-### Benchmark Results
-
-| Scenario             | Tier 1 (Accessibility) | Tier 2 (CV+OCR) | Tier 3 (Vision) | Combined  |
-| -------------------- | ---------------------- | --------------- | --------------- | --------- |
-| Standard UI Elements | 100%                   | 97%             | 88%             | **99.8%** |
-| Custom UI Elements   | N/A                    | 96%             | 92%             | **96.5%** |
-| Dynamic Content      | N/A                    | 94%             | 89%             | **94.2%** |
-| Multi-language Text  | N/A                    | 91%             | 85%             | **91.8%** |
-| **Average**          | **100%**               | **95%**         | **88.5%**       | **95.6%** |
-
-### Performance Metrics
-
-- **Task Analysis**: < 1 second (LLM latency dependent)
-- **Accessibility Detection**: < 100ms per element
-- **OCR Detection**: 200-500ms per screenshot
-- **Vision LLM Detection**: 1-3 seconds per screenshot
-- **Click Execution**: < 50ms
-
-### Resource Usage
-
-- **Memory**:
-  - Base: 200-300MB
-  - With OCR: 500-800MB
-  - Peak (Vision): 1.2GB
-- **CPU**:
-  - Idle: < 5%
-  - OCR: 30-60%
-  - Vision: 10-20% (API-dependent)
-- **Network**: Dependent on LLM API usage
-
----
-
-## Security & Safety
-
-### Destructive Operation Protection
-
-```python
-# Automatically detected dangerous commands
-DESTRUCTIVE_PATTERNS = [
-    r'rm\s+-rf',          # Recursive force delete
-    r'del\s+/[sS]',       # Windows system delete
-    r'format\s+',         # Disk formatting
-    r'dd\s+if=',          # Disk operations
-    r'>>\s*/dev/',        # Device writes
-]
-```
-
-### Protected Paths
-
-**macOS**:
-
-- `/System`, `/Library`, `/Applications`
-- `/bin`, `/sbin`, `/usr`
-
-**Windows**:
-
-- `C:\Windows`, `C:\Program Files`
-- `C:\Program Files (x86)`
-
-**Linux**:
-
-- `/bin`, `/boot`, `/etc`, `/lib`
-- `/proc`, `/sys`, `/usr`
-
-### Coordinate Validation
-
-```python
-# Pre-click validation
-def validate_click_safe(x: int, y: int) -> bool:
-    """
-    Validates click coordinates are:
-    1. Within screen bounds
-    2. Not in system menu bars
-    3. Not in protected UI regions
-    4. Rate limited (max 5 clicks/second)
-    """
-```
-
-### API Key Security
-
-- Environment variable storage (`.env`)
-- `.gitignore` protection
-- No hard-coded credentials
-- Optional key rotation support
-
----
-
-## Platform Support
-
-### Operating Systems
-
-| Platform | Minimum Version | Accessibility API | Status             |
-| -------- | --------------- | ----------------- | ------------------ |
-| macOS    | 10.14 (Mojave)  | NSAccessibility   | ✅ Fully Supported |
-| Windows  | 10              | UI Automation     | ✅ Fully Supported |
-| Linux    | Ubuntu 20.04    | AT-SPI            | ✅ Fully Supported |
-
-### Python Versions
-
-- **Supported**: 3.11, 3.12, 3.13
-- **Recommended**: 3.12 (best performance)
-- **Not Supported**: < 3.11 (Browser-Use requirement)
-
-### Hardware Requirements
-
-| Component | Minimum  | Recommended |
-| --------- | -------- | ----------- |
-| CPU       | 2 cores  | 4+ cores    |
-| RAM       | 4GB      | 8GB+        |
-| Storage   | 2GB      | 5GB+        |
-| Display   | 1280×720 | 1920×1080+  |
 
 ---
 
 ## Troubleshooting
 
-### Common Issues
+### macOS: "Accessibility permission denied"
 
-#### "Browser-Use not available"
+This happens a lot. Here's how to fix it:
 
-```bash
-# Solution
-uv sync --reinstall
-```
+1. Open System Settings
+2. Go to Privacy & Security → Accessibility
+3. Click the lock icon (bottom left)
+4. Click the "+" button
+5. Add Terminal (or your IDE)
+6. Restart Terminal/IDE
 
-#### "Accessibility API not available" (macOS)
+The app will remind you if permissions aren't set up.
 
-```bash
-# Grant permissions
-System Settings → Privacy & Security → Accessibility
-→ Add Terminal or your IDE
-→ Restart Terminal
-```
+### Windows: "UI Automation not available"
 
-#### "Module not found: atomacos"
+Run PowerShell or Terminal as Administrator. Right-click → "Run as Administrator". That's usually it.
 
-```bash
-# Reinstall platform dependencies
-uv sync --extra macos --reinstall
-```
-
-#### "Invalid API key"
+### Linux: "AT-SPI not available"
 
 ```bash
-# Verify .env file
-cat .env | grep API_KEY
-# Ensure no quotes around key values
+sudo apt-get install -y python3-pyatspi python3-xlib
 ```
 
-#### "Coordinate validation failed"
+Make sure you're running X11, not Wayland (for now).
 
-```bash
-# Check screen resolution detection
-uv run python -c "from computer_use.utils.platform_detector import detect_platform; print(detect_platform().screen_resolution)"
-```
+### OCR Not Working
 
-### Debug Mode
+Try switching engines. The system defaults to EasyOCR, but you can use:
+
+- PaddleOCR (lighter, faster)
+- macOS Vision (on Mac, really good)
+
+Check the config files if you want to change defaults.
+
+### "Invalid API key"
+
+Check your `.env` file. Make sure:
+
+- No quotes around the key value
+- The key is actually valid (test it in the provider's console)
+- You're using the right environment variable name
+
+### General Debugging
 
 ```bash
 # Enable verbose logging
@@ -901,150 +394,101 @@ export LOG_LEVEL=DEBUG
 uv run python -m computer_use.main
 ```
 
-### Support
-
-- **Issues**: [GitHub Issues](https://github.com/yourusername/computer-use/issues)
-- **Documentation**: [Full Docs](https://github.com/yourusername/computer-use/wiki)
-- **Security**: security@yourdomain.com
+This shows you what's happening under the hood. Useful when something's not working and you want to see why.
 
 ---
 
-## Project Structure
+## Performance
 
-```
-computer-use/
-├── .env                        # Environment configuration (create from template)
-├── .gitignore                  # Git ignore rules
-├── install.sh                  # Automated installation script
-├── pyproject.toml             # Python package configuration
-├── README.md                   # This file
-├── uv.lock                    # Dependency lock file
-└── src/
-    └── computer_use/
-        ├── __init__.py
-        ├── main.py            # CLI entry point
-        ├── crew.py            # Multi-agent orchestration
-        │
-        ├── agents/            # Specialized AI agents
-        │   ├── coordinator.py    # Task analysis & routing
-        │   ├── browser_agent.py  # Web automation
-        │   ├── gui_agent.py      # Desktop GUI control
-        │   └── system_agent.py   # File & terminal operations
-        │
-        ├── config/            # Configuration management
-        │   ├── agents.yaml       # Agent definitions
-        │   ├── tasks.yaml        # Task templates
-        │   └── llm_config.py     # LLM provider configuration
-        │
-        ├── schemas/           # Pydantic data models
-        │   ├── actions.py        # Action schemas
-        │   ├── gui_elements.py   # UI element schemas
-        │   ├── responses.py      # Response schemas
-        │   └── task_analysis.py  # Task classification schemas
-        │
-        ├── tools/             # Automation tool implementations
-        │   ├── accessibility/    # Platform accessibility APIs
-        │   │   ├── macos_accessibility.py   # macOS (atomacos)
-        │   │   ├── windows_accessibility.py # Windows (pywinauto)
-        │   │   └── linux_accessibility.py   # Linux (pyatspi)
-        │   ├── vision/          # Computer vision tools
-        │   │   ├── ocr_tool.py       # EasyOCR integration
-        │   │   ├── template_matcher.py # OpenCV matching
-        │   │   └── element_detector.py # CV-based detection
-        │   ├── fallback/        # Fallback mechanisms
-        │   │   └── vision_coordinates.py # Vision LLM fallback
-        │   ├── browser_tool.py      # Browser-Use integration
-        │   ├── screenshot_tool.py   # Screen capture (PyAutoGUI)
-        │   ├── input_tool.py        # Mouse/keyboard (PyAutoGUI)
-        │   ├── process_tool.py      # Process management (psutil)
-        │   ├── file_tool.py         # File operations
-        │   └── platform_registry.py # Tool registration
-        │
-        └── utils/             # Utility modules
-            ├── coordinate_validator.py # Click validation
-            ├── platform_detector.py    # OS detection
-            ├── platform_helper.py      # Platform utilities
-            └── safety_checker.py       # Safety validation
-```
+Here's what to expect:
+
+- **Task analysis**: 1-2 seconds (depends on your LLM)
+- **Accessibility detection**: Under 100ms (basically instant)
+- **OCR detection**: 200-500ms (depends on your CPU)
+- **Vision AI**: 1-3 seconds (depends on API latency)
+- **Click execution**: Under 50ms
+
+For a typical task like "download file and open in app," you're looking at 10-30 seconds total. Most of that is the AI thinking and the web automation. The actual clicking and typing? Nearly instant.
+
+---
+
+## How It Actually Works (Technical Details)
+
+### The Agents
+
+**Manager Agent**: The coordinator. Takes your request, figures out what needs to happen, breaks it into subtasks, assigns them to specialists. Uses an LLM to understand what you want.
+
+**Browser Agent**: Web specialist. Handles navigation, downloads, forms, phone verification. Uses Browser-Use under the hood, which is really good at web automation.
+
+**GUI Agent**: Desktop app specialist. Handles clicking, typing, reading screens. Uses the multi-tier accuracy system — tries accessibility first, falls back to OCR, then vision AI.
+
+**System Agent**: Command-line specialist. Runs shell commands safely. Validates everything before executing.
+
+### The Accuracy System
+
+**Tier 1**: Uses your OS's accessibility APIs. On Mac, that's NSAccessibility (via atomacos). On Windows, UI Automation (via pywinauto). On Linux, AT-SPI (via pyatspi). These give you 100% accurate coordinates because the OS tells you exactly where things are.
+
+**Tier 2**: Reads the screen with OCR. EasyOCR supports 80+ languages. PaddleOCR is lighter and faster. macOS Vision is really good if you're on Mac. These find text even when accessibility doesn't work.
+
+**Tier 3**: Uses vision AI (GPT-4V, Claude, Gemini) to understand what's on screen. This is the fallback when text isn't readable or you need semantic understanding.
+
+The system tries Tier 1 first, automatically falls back if needed. You don't configure this — it just works.
+
+### Agent Context Passing
+
+When one agent finishes, it automatically passes its output to the next agent. So if the browser agent downloads a file, the GUI agent automatically knows where it is. No manual serialization, no string concatenation. The system handles it seamlessly.
 
 ---
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
-
-### Development Setup
+We'd love your help! Here's how to get started:
 
 ```bash
-# Clone repository
+# Clone and set up
 git clone https://github.com/yourusername/computer-use.git
 cd computer-use
-
-# Install development dependencies
-uv sync --dev
-
-# Install pre-commit hooks
-pre-commit install
+uv sync --dev --extra macos  # or windows/linux
 
 # Run tests
 uv run pytest
 
-# Code formatting
-uv run black src/
-uv run ruff check src/
+# Check code style
+uv run ruff check .
+uv run ruff format .
 ```
 
-### Code Standards
+**Code standards**:
 
-- **Style**: Black formatting, Ruff linting
-- **Type Hints**: Required for all functions
-- **Documentation**: Docstrings for all public APIs
-- **Testing**: Unit tests for new features
-- **Security**: Safety validation for system operations
+- Max 400 lines per file (we're serious about this)
+- Docstrings only (no inline comments)
+- Type hints everywhere
+- Keep it simple and modular
 
 ---
 
 ## License
 
-MIT License
-
-Copyright (c) 2024 Computer Use Agent
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+MIT License — use it however you want. Just don't blame us if your automation does something weird. (We've all been there.)
 
 ---
 
 ## Acknowledgments
 
-This project builds upon excellent open-source frameworks:
+This builds on some amazing open-source projects:
 
-- **CrewAI** ([joaomdmoura/crewAI](https://github.com/joaomdmoura/crewAI)) - Multi-agent orchestration
-- **Browser-Use** ([browser-use/browser-use](https://github.com/browser-use/browser-use)) - Web automation engine
-- **LangChain** ([langchain-ai/langchain](https://github.com/langchain-ai/langchain)) - LLM framework
-- **EasyOCR** ([JaidedAI/EasyOCR](https://github.com/JaidedAI/EasyOCR)) - Optical character recognition
-- **OpenCV** ([opencv/opencv](https://github.com/opencv/opencv)) - Computer vision
-- **PyAutoGUI** ([asweigart/pyautogui](https://github.com/asweigart/pyautogui)) - GUI automation
-- **atomacos** ([pyatom/pyatom](https://github.com/pyatom/pyatom)) - macOS accessibility
-- **pywinauto** ([pywinauto/pywinauto](https://github.com/pywinauto/pywinauto)) - Windows UI automation
+- **CrewAI** — The multi-agent framework that makes this possible
+- **Browser-Use** — Web automation that actually works
+- **LangChain** — LLM integration made easy
+- **EasyOCR** — OCR that supports 80+ languages
+- **OpenCV** — Computer vision that's been around forever and still works great
+- **PyAutoGUI** — Cross-platform input control
+- **atomacos** (Mac), **pywinauto** (Windows), **pyatspi** (Linux) — Platform accessibility APIs
+
+Without these, this project wouldn't exist. So thanks to everyone who built and maintains them.
 
 ---
 
-**Built for enterprise-grade automation with 99%+ accuracy** 🎯
+**Questions? Issues? Want to contribute?**
 
-For questions, issues, or feature requests, please visit our [GitHub repository](https://github.com/yourusername/computer-use).
+Check out the [GitHub repository](https://github.com/yourusername/computer-use) or open an issue. We're here to help.

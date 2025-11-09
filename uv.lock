@@ -742,6 +742,7 @@ dependencies = [
     { name = "pyautogui" },
     { name = "pydantic" },
     { name = "pyngrok" },
+    { name = "pynput" },
     { name = "pyperclip" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
@@ -787,6 +788,7 @@ requires-dist = [
     { name = "pyautogui", specifier = ">=0.9.54" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pyngrok", specifier = ">=7.0.0" },
+    { name = "pynput", specifier = ">=1.7.6" },
     { name = "pyobjc-framework-applicationservices", marker = "extra == 'macos'", specifier = ">=10.0" },
     { name = "pyobjc-framework-cocoa", marker = "extra == 'macos'", specifier = ">=10.0" },
     { name = "pyobjc-framework-quartz", marker = "extra == 'macos'", specifier = ">=10.0" },
@@ -1076,6 +1078,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/d3/38/af70d7ab1ae9d4da4
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c1/8b/5fe2cc11fee489817272089c4203e679c63b570a5aaeb18d852ae3cbba6a/et_xmlfile-2.0.0-py3-none-any.whl", hash = "sha256:7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa", size = 18059, upload-time = "2024-10-25T17:25:39.051Z" },
 ]
+
+[[package]]
+name = "evdev"
+version = "1.9.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/63/fe/a17c106a1f4061ce83f04d14bcedcfb2c38c7793ea56bfb906a6fadae8cb/evdev-1.9.2.tar.gz", hash = "sha256:5d3278892ce1f92a74d6bf888cc8525d9f68af85dbe336c95d1c87fb8f423069", size = 33301, upload-time = "2025-05-01T19:53:47.69Z" }
 
 [[package]]
 name = "executing"
@@ -4294,6 +4302,22 @@ wheels = [
 ]
 
 [[package]]
+name = "pynput"
+version = "1.8.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "evdev", marker = "'linux' in sys_platform" },
+    { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin'" },
+    { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'" },
+    { name = "python-xlib", marker = "'linux' in sys_platform" },
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f0/c3/dccf44c68225046df5324db0cc7d563a560635355b3e5f1d249468268a6f/pynput-1.8.1.tar.gz", hash = "sha256:70d7c8373ee98911004a7c938742242840a5628c004573d84ba849d4601df81e", size = 82289, upload-time = "2025-03-17T17:12:01.481Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/59/4f/ac3fa906ae8a375a536b12794128c5efacade9eaa917a35dfd27ce0c7400/pynput-1.8.1-py2.py3-none-any.whl", hash = "sha256:42dfcf27404459ca16ca889c8fb8ffe42a9fe54f722fd1a3e130728e59e768d2", size = 91693, upload-time = "2025-03-17T17:12:00.094Z" },
+]
+
+[[package]]
 name = "pyobjc"
 version = "11.1"
 source = { registry = "https://pypi.org/simple" }
@@ -7230,7 +7254,7 @@ name = "python-xlib"
 version = "0.33"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "six", marker = "sys_platform != 'darwin'" },
+    { name = "six" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/86/f5/8c0653e5bb54e0cbdfe27bf32d41f27bc4e12faa8742778c17f2a71be2c0/python-xlib-0.33.tar.gz", hash = "sha256:55af7906a2c75ce6cb280a584776080602444f75815a7aff4d287bb2d7018b32", size = 269068, upload-time = "2022-12-25T18:53:00.824Z" }
 wheels = [

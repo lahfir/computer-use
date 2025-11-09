@@ -39,6 +39,24 @@ class ComputerUseCrew:
     Uses CrewAI's Agent, Task, and Crew for proper multi-agent orchestration.
     """
 
+    # Class-level cancellation flag checked by tools
+    _cancellation_requested = False
+
+    @classmethod
+    def request_cancellation(cls):
+        """Request cancellation of current task execution."""
+        cls._cancellation_requested = True
+
+    @classmethod
+    def clear_cancellation(cls):
+        """Clear cancellation flag for new task."""
+        cls._cancellation_requested = False
+
+    @classmethod
+    def is_cancelled(cls):
+        """Check if cancellation has been requested."""
+        return cls._cancellation_requested
+
     def __init__(
         self,
         capabilities: Any,
@@ -367,12 +385,28 @@ class ComputerUseCrew:
                     description="Analysis of the task and orchestration strategy"
                 )
                 subtasks: TypingList[SubTask] = Field(
-                    description="List of subtasks in execution order (can be 1 for simple tasks)"
+                    description="List of subtasks in execution order. MUST have at least 1 subtask for any action request. Empty list ONLY for pure conversational queries like 'hello' or 'how are you'.",
+                    min_length=0,
                 )
 
             orchestration_prompt = f"""You are an intelligent task orchestration system. Analyze this user request:
 
 USER REQUEST: {task}
+
+🚨 DECISION FRAMEWORK:
+
+Ask yourself: "Does this request want me to DO something?"
+→ YES (any action, signup, open, create, download, search, change, get, etc.) → CREATE SUBTASKS
+→ NO (pure greeting/question with no action) → EMPTY subtasks
+
+Examples:
+• "Please signup to tiktok" → CREATE subtask (action: signup)
+• "Download image of X" → CREATE subtask (action: download)
+• "Open calculator and compute X" → CREATE subtask (action: open + compute)
+• "Hello" → Empty subtasks (no action)
+• "How are you?" → Empty subtasks (no action)
+
+If you're unsure → CREATE SUBTASKS. Better to try than to do nothing.
 
 AGENT CAPABILITIES:
 - browser: Web research, downloads, data extraction, website interaction
@@ -483,6 +517,7 @@ Analyze the request and create an optimal task plan:"""
                 crew_tasks.append(crew_task)
 
             if len(crew_tasks) == 0:
+                print_info("💬 This looks like a conversational message")
                 return TaskExecutionResult(
                     task=task,
                     overall_success=True,
@@ -503,16 +538,32 @@ Analyze the request and create an optimal task plan:"""
             )
 
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, self.crew.kickoff)
+            try:
+                result = await loop.run_in_executor(None, self.crew.kickoff)
+                print_success("✅ Crew execution completed!")
 
-            print_success("✅ Crew execution completed!")
+                return TaskExecutionResult(
+                    task=task,
+                    result=str(result),
+                    overall_success=True,
+                )
+            except asyncio.CancelledError:
+                print_failure("⚠️  Task cancelled by user")
+                return TaskExecutionResult(
+                    task=task,
+                    result=None,
+                    overall_success=False,
+                    error="Task cancelled by user (ESC pressed)",
+                )
 
+        except asyncio.CancelledError:
+            print_failure("⚠️  Task cancelled by user")
             return TaskExecutionResult(
                 task=task,
-                result=str(result),
-                overall_success=True,
+                result=None,
+                overall_success=False,
+                error="Task cancelled by user (ESC pressed)",
             )
-
         except Exception as e:
             print_failure(f"❌ Crew execution failed: {str(e)}")
             import traceback

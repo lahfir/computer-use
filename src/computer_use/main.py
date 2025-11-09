@@ -86,38 +86,90 @@ async def main():
     print_section_header("Ready for Automation", "✨")
 
     conversation_history = []
+    esc_pressed = {"value": False}
 
-    while True:
+    def on_key_press(key):
+        """Monitor for ESC key press."""
         try:
-            task = await get_task_input()
+            from pynput import keyboard
 
-            if not task:
-                continue
+            if key == keyboard.Key.esc:
+                esc_pressed["value"] = True
+        except Exception:
+            pass
 
-            if task.lower() in ["quit", "exit", "q"]:
-                console.print("\n[bold cyan]👋 Goodbye![/bold cyan]")
+    # Start keyboard listener
+    from pynput import keyboard
+
+    listener = keyboard.Listener(on_press=on_key_press)
+    listener.start()
+
+    try:
+        while True:
+            try:
+                task = await get_task_input()
+
+                if not task:
+                    continue
+
+                if task.lower() in ["quit", "exit", "q"]:
+                    console.print("\n[bold cyan]👋 Goodbye![/bold cyan]")
+                    break
+
+                console.print(
+                    f"\n[bold yellow]⏳ Processing:[/bold yellow] [white]{task}[/white]"
+                )
+                console.print("[dim]Press ESC to stop the task at any time[/dim]\n")
+
+                # Reset ESC flag and crew cancellation
+                esc_pressed["value"] = False
+                ComputerUseCrew.clear_cancellation()
+
+                # Create cancellable task
+                task_future = asyncio.create_task(
+                    crew.execute_task(task, conversation_history)
+                )
+
+                # Monitor for ESC while task runs
+                while not task_future.done():
+                    if esc_pressed["value"]:
+                        console.print(
+                            "\n[bold yellow]⚠️  ESC pressed - Stopping task...[/bold yellow]"
+                        )
+                        ComputerUseCrew.request_cancellation()
+                        task_future.cancel()
+                        try:
+                            await task_future
+                        except asyncio.CancelledError:
+                            pass
+                        console.print(
+                            "[yellow]✋ Task cancelled. Waiting for cleanup...[/yellow]\n"
+                        )
+                        break
+                    await asyncio.sleep(0.1)
+
+                if not task_future.cancelled():
+                    result = await task_future
+                    conversation_history.append({"user": task, "result": result})
+
+                    if len(conversation_history) > 10:
+                        conversation_history = conversation_history[-10:]
+
+                    print_task_result(result)
+
+            except KeyboardInterrupt:
+                console.print("\n\n[yellow]⚠️  Interrupted by user[/yellow]")
                 break
+            except asyncio.CancelledError:
+                console.print("[yellow]✋ Task cancelled.[/yellow]\n")
+                continue
+            except Exception as e:
+                console.print(f"\n[red]❌ Error: {e}[/red]")
+                import traceback
 
-            console.print(
-                f"\n[bold yellow]⏳ Processing:[/bold yellow] [white]{task}[/white]"
-            )
-            result = await crew.execute_task(task, conversation_history)
-
-            conversation_history.append({"user": task, "result": result})
-
-            if len(conversation_history) > 10:
-                conversation_history = conversation_history[-10:]
-
-            print_task_result(result)
-
-        except KeyboardInterrupt:
-            console.print("\n\n[yellow]⚠️  Interrupted by user[/yellow]")
-            break
-        except Exception as e:
-            console.print(f"\n[red]❌ Error: {e}[/red]")
-            import traceback
-
-            traceback.print_exc()
+                traceback.print_exc()
+    finally:
+        listener.stop()
 
 
 def cli():

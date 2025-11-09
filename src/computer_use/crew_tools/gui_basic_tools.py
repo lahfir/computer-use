@@ -13,6 +13,24 @@ from ..schemas.actions import ActionResult
 from ..config.timing_config import get_timing_config
 
 
+def check_cancellation() -> Optional[ActionResult]:
+    """
+    Check if task cancellation has been requested.
+    Returns ActionResult with cancellation error if cancelled, None otherwise.
+    """
+    from ..crew import ComputerUseCrew
+
+    if ComputerUseCrew.is_cancelled():
+        return ActionResult(
+            success=False,
+            action_taken="Task cancelled by user",
+            method_used="cancellation",
+            confidence=0.0,
+            error="Task cancelled by user (ESC pressed)",
+        )
+    return None
+
+
 class TempFileRegistry:
     """
     Registry to track and cleanup temporary files created by tools.
@@ -165,6 +183,8 @@ class OpenApplicationTool(BaseTool):
         Returns:
             ActionResult with launch details
         """
+        if cancelled := check_cancellation():
+            return cancelled
 
         process_tool = self._tool_registry.get_tool("process")
         accessibility_tool = self._tool_registry.get_tool("accessibility")
@@ -302,6 +322,9 @@ class ReadScreenTextTool(BaseTool):
         Returns:
             ActionResult with extracted text
         """
+        if cancelled := check_cancellation():
+            return cancelled
+
         screenshot_tool = self._tool_registry.get_tool("screenshot")
         ocr_tool = self._tool_registry.get_tool("ocr")
 

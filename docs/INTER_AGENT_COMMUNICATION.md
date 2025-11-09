@@ -2,54 +2,372 @@
 
 ## Overview
 
-The system features robust inter-agent communication with full type safety:
+The system features robust CrewAI-powered inter-agent communication with intelligent task decomposition:
 
-- **Type-Safe Data Passing**: All agents use Pydantic `ActionResult` models
-- **Smart Handoffs**: Agents recognize boundaries and delegate appropriately
-- **File Tracking**: Downloaded files tracked with complete metadata
-- **Context Sharing**: Rich context passed between Browser, GUI, and System agents
+- **CrewAI Context Passing**: Automatic output passing between sequential tasks
+- **Task Decomposition**: LLM-powered analysis breaks complex tasks into optimal subtasks
+- **Structured Outputs**: Type-safe Pydantic schemas for all agent results
+- **File Tracking**: Automatic discovery and path resolution for downloaded files
 - **Principle-Based Intelligence**: Generic guidelines that scale to any task
+
+---
+
+## CrewAI Architecture
+
+### Multi-Agent Orchestration
+
+```python
+from crewai import Agent, Task, Crew, Process
+
+# Manager analyzes task and creates execution plan
+task_plan = await orchestration_llm.decompose_task(user_request)
+
+# Create CrewAI tasks with automatic context passing
+tasks = []
+for subtask in task_plan.subtasks:
+    task = Task(
+        description=subtask.description,
+        expected_output=subtask.expected_output,
+        agent=agents[subtask.agent_type],
+        context=[tasks[-1]] if subtask.depends_on_previous else None,
+    )
+    tasks.append(task)
+
+# Execute crew
+crew = Crew(
+    agents=list(agents.values()),
+    tasks=tasks,
+    process=Process.sequential,
+    verbose=True,
+)
+
+result = crew.kickoff()
+```
+
+### Automatic Context Passing
+
+CrewAI handles context passing between agents automatically:
+
+```python
+# Task 1: Browser downloads file
+browser_task = Task(
+    description="Download Tesla stock data from Yahoo Finance",
+    agent=browser_agent,
+    expected_output="CSV file with stock data",
+    context=[],  # No previous context
+)
+
+# Task 2: GUI processes file (receives browser output automatically)
+gui_task = Task(
+    description="Open Excel and create chart from the downloaded data",
+    agent=gui_agent,
+    expected_output="Excel workbook with chart",
+    context=[browser_task],  # ← CrewAI passes browser output here!
+)
+```
+
+**What CrewAI Does**:
+1. Browser agent executes and returns structured output
+2. CrewAI captures the browser agent's result
+3. GUI agent receives browser output in its context automatically
+4. No manual serialization or context management needed
+
+---
+
+## Task Decomposition System
+
+### How It Works
+
+The Manager Agent uses structured LLM output to break down complex tasks:
+
+```python
+from pydantic import BaseModel, Field
+from typing import List
+
+class SubTask(BaseModel):
+    """Single subtask in execution plan."""
+    
+    agent_type: str = Field(
+        description="Agent type: 'browser', 'gui', or 'system'"
+    )
+    description: str = Field(
+        description="Clear, specific task description"
+    )
+    expected_output: str = Field(
+        description="What this agent should produce"
+    )
+    depends_on_previous: bool = Field(
+        description="True if needs output from previous subtask"
+    )
+
+class TaskPlan(BaseModel):
+    """Complete task execution plan."""
+    
+    reasoning: str = Field(
+        description="Analysis of task and orchestration strategy"
+    )
+    subtasks: List[SubTask] = Field(
+        description="List of subtasks in execution order"
+    )
+```
+
+### Example Decomposition
+
+**User Request**: "Download Nvidia stock report and create summary in TextEdit"
+
+**Manager Agent Analysis**:
+```python
+TaskPlan(
+    reasoning="Task requires web download followed by desktop app processing",
+    subtasks=[
+        SubTask(
+            agent_type="browser",
+            description="Navigate to Yahoo Finance, search for Nvidia (NVDA), download quarterly report PDF",
+            expected_output="PDF file with Nvidia stock report",
+            depends_on_previous=False
+        ),
+        SubTask(
+            agent_type="gui",
+            description="Open TextEdit and create a summary document using the downloaded PDF",
+            expected_output="Text file with summary of key points",
+            depends_on_previous=True  # Needs file path from browser
+        )
+    ]
+)
+```
+
+**Execution Flow**:
+```
+Step 1: Browser Agent
+  ↓
+  Downloads nvidia_report.pdf to /tmp/browser_agent_xyz/
+  ↓
+  Returns: TaskCompletionOutput(
+      success=True,
+      files=["/tmp/browser_agent_xyz/nvidia_report.pdf"]
+  )
+  ↓
+Step 2: CrewAI Context Passing
+  ↓
+  Automatically adds browser output to GUI task context
+  ↓
+Step 3: GUI Agent
+  ↓
+  Receives: context containing file path
+  Opens TextEdit
+  Creates summary using file path
+  ↓
+  Returns: TaskCompletionOutput(success=True)
+```
+
+---
+
+## Type-Safe Data Structures
+
+### TaskCompletionOutput Schema
+
+All agents return this CrewAI-compatible structure:
+
+```python
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any
+
+class TaskCompletionOutput(BaseModel):
+    """
+    Structured output for CrewAI task completion.
+    Used by all agents to return results.
+    """
+    
+    success: bool = Field(
+        description="Task completion status"
+    )
+    result: str = Field(
+        description="Detailed result description"
+    )
+    files: List[str] = Field(
+        default_factory=list,
+        description="Paths to files created/downloaded"
+    )
+    data: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Additional structured data"
+    )
+    next_steps: Optional[str] = Field(
+        default=None,
+        description="Suggested next actions"
+    )
+```
+
+### BrowserOutput Schema
+
+Browser agent uses enhanced output structure:
+
+```python
+from pydantic import BaseModel, Field
+
+class FileDetail(BaseModel):
+    """Metadata for a downloaded file."""
+    path: str = Field(description="Absolute file path")
+    name: str = Field(description="Filename")
+    size: int = Field(description="Size in bytes")
+
+class BrowserOutput(BaseModel):
+    """
+    Structured output from Browser agent.
+    Embedded in TaskCompletionOutput.data field.
+    """
+    
+    text: str = Field(
+        description="Summary of actions and findings"
+    )
+    files: List[str] = Field(
+        default_factory=list,
+        description="Absolute paths to downloaded files"
+    )
+    file_details: List[FileDetail] = Field(
+        default_factory=list,
+        description="Detailed metadata for each file"
+    )
+    work_directory: Optional[str] = Field(
+        default=None,
+        description="Temporary working directory"
+    )
+
+    def format_summary(self) -> str:
+        """Format comprehensive summary with file info."""
+        summary = f"📝 Summary:\n{self.text}\n"
+        if self.files:
+            summary += "\n📁 DOWNLOADED FILES:\n"
+            for file_path in self.files:
+                summary += f"   • {file_path}\n"
+            summary += "\n📊 File Details:\n"
+            for fd in self.file_details:
+                size_kb = fd.size / 1024
+                summary += f"   • {fd.name} ({size_kb:.1f} KB)\n"
+                summary += f"     Path: {fd.path}\n"
+        return summary
+```
+
+### Agent Return Example
+
+**Browser Agent**:
+```python
+# Browser agent returns TaskCompletionOutput
+return TaskCompletionOutput(
+    success=True,
+    result="Downloaded Nvidia quarterly report from Yahoo Finance",
+    files=["/tmp/browser_agent_abc/nvidia_q4_2024.pdf"],
+    data={
+        "output": BrowserOutput(
+            text="Successfully downloaded Nvidia Q4 2024 report",
+            files=["/tmp/browser_agent_abc/nvidia_q4_2024.pdf"],
+            file_details=[
+                FileDetail(
+                    path="/tmp/browser_agent_abc/nvidia_q4_2024.pdf",
+                    name="nvidia_q4_2024.pdf",
+                    size=2359296  # 2.3 MB
+                )
+            ],
+            work_directory="/tmp/browser_agent_abc"
+        ).model_dump(),
+        "stock_symbol": "NVDA",
+        "report_quarter": "Q4 2024"
+    },
+    next_steps="File is ready for processing in desktop applications"
+)
+```
+
+**GUI Agent**:
+```python
+# GUI agent returns TaskCompletionOutput
+return TaskCompletionOutput(
+    success=True,
+    result="Created summary document in TextEdit",
+    files=["/Users/john/Documents/nvidia_summary.txt"],
+    data={
+        "app_used": "TextEdit",
+        "document_length": "450 words"
+    }
+)
+```
+
+---
+
+## CrewAI Context Flow
+
+### Sequential Task Execution
+
+CrewAI executes tasks sequentially and passes context automatically:
+
+```python
+# Crew setup
+crew = Crew(
+    agents=[browser_agent, gui_agent, system_agent],
+    tasks=[task1, task2, task3],
+    process=Process.sequential,  # Tasks run in order
+    verbose=True,
+)
+
+# Execution
+# 1. task1 executes → returns output1
+# 2. task2 receives output1 in context → returns output2
+# 3. task3 receives output2 in context → returns output3
+```
+
+### Context Passing Example
+
+**Real Workflow**: "Research census data and create presentation"
+
+**Task 1 - Browser Agent**:
+```python
+browser_task = Task(
+    description="Navigate to census.gov, search for demographic data, download 2024 population statistics",
+    expected_output="CSV file with population data",
+    agent=browser_agent,
+    context=[],  # First task, no context
+)
+
+# Executes and returns:
+TaskCompletionOutput(
+    success=True,
+    files=["/tmp/browser_agent_xyz/census_2024.csv"],
+    result="Downloaded 2024 census data..."
+)
+```
+
+**Task 2 - GUI Agent** (receives Task 1 output):
+```python
+gui_task = Task(
+    description="Open Keynote, create presentation with census data from downloaded file",
+    expected_output="Keynote presentation with charts",
+    agent=gui_agent,
+    context=[browser_task],  # ← Receives browser output!
+)
+
+# GUI agent sees in its context:
+"""
+Previous Task Output:
+success: True
+files: ["/tmp/browser_agent_xyz/census_2024.csv"]
+result: "Downloaded 2024 census data..."
+"""
+
+# GUI agent can access the file path:
+file_path = context["files"][0]  # "/tmp/browser_agent_xyz/census_2024.csv"
+
+# Opens Keynote, imports CSV, creates charts
+```
 
 ---
 
 ## Browser Agent Intelligence
 
-### Critical Rule: Use Only Provided Credentials
-
-**Problem**: LLMs sometimes "hallucinate" test data like `test@gmail.com` instead of using actual credentials.
-
-**Solution**: Explicit instructions at the top of every browser task:
-
-```python
-🚨 CRITICAL RULE #1: USE ONLY PROVIDED CREDENTIALS - NO HALLUCINATIONS
-
-❌ NEVER EVER use test/placeholder data like:
-   - test@gmail.com
-   - test@example.com
-   - placeholder@email.com
-   - 123456 (fake phone numbers)
-   - Any credentials not explicitly provided in the task
-
-✅ ALWAYS use EXACTLY what the user provides:
-   - If task says "use email: user@example.com" → USE user@example.com
-   - If task says "use phone: +1234567890" → USE +1234567890
-   - If credentials are in the task → EXTRACT and USE them verbatim
-   - If credentials NOT in task → Use available tools (get_verification_phone_number, etc.)
-
-🔴 STOP AND READ THE TASK CAREFULLY:
-   → Look for: "use this email", "credentials:", "sign in with", "phone number:"
-   → Extract the EXACT value provided
-   → Do NOT substitute with test data
-   → Do NOT make up placeholder values
-```
-
-**Impact**: Eliminates the #1 cause of authentication failures.
-
 ### Principle-Based Guidelines
 
-The Browser agent operates with clear, generic principles about its role:
+The Browser agent operates with clear boundaries:
 
 ```python
+BROWSER_AGENT_GUIDELINES = """
 🎯 BROWSER AGENT PRINCIPLES
 
 Your role: WEB AUTOMATION SPECIALIST
@@ -65,42 +383,53 @@ Success = Gathering the requested data, NOT processing it
 
 Key insight: If you got the data but can't process it further in a browser,
 you've succeeded! Call done() and describe what you gathered.
+"""
 ```
 
 ### Loop Prevention
 
 ```python
+from browser_use import Agent, BrowserSession
+
 agent = Agent(
-    task=full_task,
-    llm=self.llm_client,
+    task=enhanced_task,
+    llm=browser_llm,
     browser_session=browser_session,
-    max_failures=5,      # Allow retries for complex tasks
+    max_failures=5,      # Allow retries for network issues
 )
 
-result = await agent.run(max_steps=30)  # Hard limit to prevent infinite loops
+# Hard limit prevents infinite loops
+result = await agent.run(max_steps=30)
 ```
 
-**Why This Works**:
-
-- **Generic**: Applies to any task (census data, downloads, APIs, scraping)
-- **Principle-Based**: Agent reasons about boundaries, not rigid rules
-- **Self-Aware**: Understands its role as a specialist, not generalist
-
-### QR Code Detection & Handling
-
-**Problem**: QR codes require physical device scanning - automation cannot solve them.
-
-**Solution**: Immediate human escalation when QR codes are detected:
+### Credential Handling
 
 ```python
+CREDENTIALS_REMINDER = """
+🚨 CRITICAL RULE: USE ONLY PROVIDED CREDENTIALS
+
+❌ NEVER use test/placeholder data like:
+   - test@gmail.com
+   - placeholder@email.com
+   - 123456 (fake phone)
+
+✅ ALWAYS use EXACTLY what the user provides:
+   - If task says "use email: user@example.com" → USE user@example.com
+   - If task says "use phone: +1234567890" → USE +1234567890
+   - If credentials NOT in task → Use tools (get_verification_phone_number, etc.)
+"""
+```
+
+### QR Code Detection
+
+```python
+QR_CODE_HANDLING = """
 📱 QR CODE INTELLIGENCE
 
 Detection Signals:
 - Images containing square QR code patterns
 - Text like "Scan QR code", "Use your phone to scan"
 - Two-factor authentication with QR option
-- Login pages offering "Scan with mobile app"
-- Account linking with QR authentication
 
 Action:
 → QR CODE DETECTED: IMMEDIATELY call request_human_help
@@ -109,326 +438,148 @@ Action:
 Example:
 request_human_help(
     reason="QR code authentication required",
-    instructions="Please scan the QR code displayed on screen with your mobile device to proceed"
+    instructions="Please scan the QR code on screen with your mobile device"
 )
-
-Critical Rules:
-✅ Detect QR codes early (check page content after navigation)
-✅ Call for help IMMEDIATELY when QR code is the only option
-✅ Provide clear instructions (what to scan, where it is)
-✅ Wait for user confirmation before proceeding
-❌ NEVER try to "read" or "process" QR codes yourself
-❌ NEVER skip QR code steps - they're security checkpoints
-```
-
-### Escalation Protocol: When to Request Human Help
-
-**Problem**: Agents can get stuck after multiple failed attempts.
-
-**Solution**: Systematic escalation protocol with clear criteria:
-
-```python
-🆘 ESCALATION PROTOCOL
-
-IMMEDIATE ESCALATION (Don't even try):
-→ QR codes detected (physical device required)
-→ Visual CAPTCHA challenges (image puzzles, traffic lights)
-→ Biometric authentication (fingerprint, face recognition)
-→ Physical security keys (YubiKey, hardware tokens)
-
-ESCALATE AFTER ATTEMPTS (Tried multiple approaches):
-→ Tried 3+ different approaches, all failed
-→ Page structure completely unexpected/broken
-→ Critical blocker with no programmatic solution
-→ Ambiguous choices requiring human judgment
-→ Verification steps that need out-of-band information
-
-GOOD ESCALATION REQUEST:
-request_human_help(
-    reason="Stuck after 3 attempts: phone verification not accepting format",
-    instructions="Tried multiple phone number formats (with/without country code). Please manually enter the phone number in the required format on the current page."
-)
-
-BAD ESCALATION:
-request_human_help(reason="Can't find button", instructions="Help")
-
-ESCALATION CHECKLIST:
-✅ Tried at least 2-3 different approaches
-✅ Clearly explained what you tried and why it failed
-✅ Provided specific instructions on what user needs to do
-✅ Explained current state (what page, what's visible)
-❌ Don't escalate on first failure - be resilient first
-❌ Don't escalate without context - explain the situation
+"""
 ```
 
 ---
 
-## Type-Safe Data Structures
+## File Tracking System
 
-### ActionResult Schema
+### Automatic Discovery
 
-All agents return `ActionResult` (Pydantic model):
-
-```python
-from schemas.actions import ActionResult
-
-class ActionResult(BaseModel):
-    success: bool
-    action_taken: str
-    method_used: str
-    confidence: float
-    data: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    handoff_requested: bool = False
-    suggested_agent: Optional[str] = None
-    handoff_reason: Optional[str] = None
-    handoff_context: Optional[Dict[str, Any]] = None
-```
-
-### BrowserOutput Schema
-
-Browser agent packages output in structured format:
+Browser agent automatically tracks downloaded files:
 
 ```python
-from schemas.browser_output import BrowserOutput, FileDetail
-
-class FileDetail(BaseModel):
-    path: str   # Absolute path
-    name: str   # Filename
-    size: int   # Bytes
-
-class BrowserOutput(BaseModel):
-    text: str                               # Summary of actions
-    files: List[str] = []                   # File paths
-    file_details: List[FileDetail] = []     # Full metadata
-    work_directory: Optional[str] = None    # Temp directory
-
-    def has_files(self) -> bool
-    def get_file_count(self) -> int
-    def get_total_size_kb(self) -> float
-    def format_summary(self) -> str
-```
-
-### Browser Agent Return Example
-
-```python
-# Browser agent returns typed ActionResult
-result = ActionResult(
-    success=True,
-    action_taken="Downloaded data from census.gov",
-    method_used="browser",
-    confidence=1.0,
-    data={
-        "result": str(AgentHistoryList),
-        "output": BrowserOutput(
-            text="Downloaded demographic data from census.gov",
-            files=["/tmp/browser_agent_abc/demographics_2024.csv"],
-            file_details=[
-                FileDetail(
-                    path="/tmp/browser_agent_abc/demographics_2024.csv",
-                    name="demographics_2024.csv",
-                    size=524288
-                )
-            ],
-            work_directory="/tmp/browser_agent_abc/"
-        ).model_dump(),  # Serialized for data field
-        "task_complete": True
-    }
-)
-
-# Type-safe access
-if result.success:  # Direct attribute
-    output_dict = result.data["output"]
-    browser_output = BrowserOutput(**output_dict)  # Parse to typed object
-
-    print(browser_output.text)
-    for file_path in browser_output.files:
-        print(f"File: {file_path}")
-```
-
----
-
-## File Tracking
-
-### Discovery Process
-
-1. **Attachments**: Files explicitly marked by Browser-Use via `attachments` field
-2. **Work Directory**: All files in `browseruse_agent_data/` subdirectory
-3. **Absolute Paths**: All paths converted to absolute for easy access
-4. **Metadata**: Extract name, size, and other details
-
-### Implementation
-
-```python
-# Check Browser-Use attachments
-if result.history and len(result.history) > 0:
-    attachments = result.history[-1].result[-1].attachments
-    if attachments:
-        for attachment in attachments:
-            attachment_path = Path(attachment)
-            if attachment_path.exists():
-                downloaded_files.append(str(attachment_path.absolute()))
+async def track_downloaded_files(self, result: AgentHistoryList, temp_dir: Path):
+    """
+    Track files from Browser-Use execution.
+    
+    Sources:
+    1. Browser-Use attachments field
+    2. Files in working directory
+    """
+    downloaded_files = []
+    file_details = []
+    
+    # Check Browser-Use attachments
+    if result.history and len(result.history) > 0:
+        attachments = result.history[-1].result[-1].attachments
+        if attachments:
+            for attachment in attachments:
+                path = Path(attachment)
+                if path.exists():
+                    downloaded_files.append(str(path.absolute()))
+                    file_details.append(FileDetail(
+                        path=str(path.absolute()),
+                        name=path.name,
+                        size=path.stat().st_size
+                    ))
+    
+    # Scan browser working directory
+    browser_data_dir = temp_dir / "browseruse_agent_data"
+    if browser_data_dir.exists():
+        for file_path in browser_data_dir.rglob("*"):
+            if file_path.is_file():
+                downloaded_files.append(str(file_path.absolute()))
                 file_details.append(FileDetail(
-                    path=str(attachment_path.absolute()),
-                    name=attachment_path.name,
-                    size=attachment_path.stat().st_size
+                    path=str(file_path.absolute()),
+                    name=file_path.name,
+                    size=file_path.stat().st_size
                 ))
-
-# Scan browser's working directory
-browser_data_dir = temp_dir / "browseruse_agent_data"
-if browser_data_dir.exists():
-    for file_path in browser_data_dir.rglob("*"):
-        if file_path.is_file():
-            downloaded_files.append(str(file_path.absolute()))
-            file_details.append(FileDetail(
-                path=str(file_path.absolute()),
-                name=file_path.name,
-                size=file_path.stat().st_size
-            ))
+    
+    return downloaded_files, file_details
 ```
 
----
+### Path Resolution
 
-## Context Passing Flow
-
-### Type-Safe Serialization Strategy
-
-**Principle**: Keep types as long as possible, serialize only at boundaries.
+All file paths are converted to absolute paths:
 
 ```python
-# 1. Agent Execution → Returns ActionResult (typed)
-result: ActionResult = await self._execute_browser(task, context)
+# Relative path → Absolute path
+"/tmp/browseruse_agent_data/report.pdf"
+→ "/tmp/browser_agent_abc123/browseruse_agent_data/report.pdf"
 
-# 2. Internal Storage → Keep as ActionResult for type safety
-results.append(result)  # Typed list
-
-# 3. Context Serialization → Convert to dict for context passing
-context["previous_results"].append(result.model_dump())
-
-# 4. Next Agent → Receives context, parses back to typed objects
-for res in context.get("previous_results", []):
-    output = res.get("data", {}).get("output")
-    if isinstance(output, dict):
-        browser_output = BrowserOutput(**output)  # Type-safe!
-        print(browser_output.text)
-        for file in browser_output.files:
-            print(file)
-
-# 5. Final Serialization → Convert all at the very end
-def _build_result(self, task, analysis, results, success):
-    return {
-        "task": task,
-        "results": [r.model_dump() for r in results],  # Serialize once
-        "overall_success": success
-    }
-```
-
----
-
-## Crew Orchestrator
-
-### Type-Safe Agent Execution
-
-All executor methods return `ActionResult`:
-
-```python
-async def _execute_browser(self, task: str, context: dict) -> ActionResult:
-    """Execute browser agent, returns typed ActionResult."""
-    return await self.browser_agent.execute_task(task, context=context)
-
-async def _execute_gui(self, task: str, context: dict) -> ActionResult:
-    """Execute GUI agent, returns typed ActionResult."""
-    return await self.gui_agent.execute_task(task, context=context)
-
-async def _execute_system(self, task: str, context: dict) -> ActionResult:
-    """Execute system agent, returns typed ActionResult."""
-    return await self.system_agent.execute_task(task, context)
-```
-
-### Type-Safe Field Access
-
-```python
-# Direct attribute access (type-safe)
-if result.success:
-    if result.handoff_requested:
-        suggested = result.suggested_agent
-        print_handoff("GUI", suggested.upper() if suggested else "UNKNOWN", result.handoff_reason)
-
-        context["handoff_context"] = result.handoff_context
-
-        if suggested == "system":
-            handoff_result = await self._execute_system(task, context)
-
-            if handoff_result.success:
-                print_success("System agent completed handoff task")
-            else:
-                print_failure(f"System agent failed: {handoff_result.error}")
-```
-
-### Smart Handoff Detection
-
-```python
-# Browser agent completion check
-browser_completed_attempt = (
-    result.data.get("task_complete", False) if result.data else False
-)
-
-if result.success:
-    print_success("Browser task completed successfully")
-
-    if browser_completed_attempt and not (analysis.requires_gui or analysis.requires_system):
-        print_success("Task fully completed by Browser agent")
-        return self._build_result(task, analysis, results, True)
-
-elif browser_completed_attempt:
-    # Partial success - agent tried but couldn't fully succeed
-    print_warning("Browser completed attempt but couldn't fully succeed")
-
-    if result.data and "output" in result.data:
-        output_data = result.data["output"]
-        browser_output = BrowserOutput(**output_data)
-        print_info(f"Browser says: {browser_output.text}")
-
-        if browser_output.has_files():
-            print_info(f"Files available: {browser_output.get_file_count()} file(s)")
-            for file_path in browser_output.files[:3]:
-                console.print(f"  [dim]• {file_path}[/dim]")
-    # Continue to GUI agent
-else:
-    print_failure(f"Browser task failed: {result.error or 'Unknown error'}")
-    return self._build_result(task, analysis, results, False)
-```
-
-### Overall Success Check
-
-```python
-# Type-safe list comprehension
-overall_success = all(r.success for r in results)
+# GUI agent receives absolute path in context
+# Can directly open file without path resolution
 ```
 
 ---
 
 ## GUI Agent Context Display
 
-### Rich Context in Prompt
+### Rich Context Formatting
 
 The GUI agent receives beautifully formatted context:
 
+```python
+def format_context_for_gui(self, context: Dict[str, Any]) -> str:
+    """Format context for GUI agent prompt."""
+    
+    if not context or not context.get("previous_results"):
+        return ""
+    
+    context_str = """
+============================================================
+PREVIOUS AGENT WORK (Build on this!):
+============================================================
+
+"""
+    
+    for i, result in enumerate(context["previous_results"], 1):
+        agent_type = result.get("method_used", "unknown")
+        action = result.get("action_taken", "")
+        success = "✅" if result.get("success") else "❌"
+        
+        context_str += f"{success} Agent {i} ({agent_type}): {action}\n"
+        
+        # Parse browser output if available
+        if result.get("data") and "output" in result["data"]:
+            output_data = result["data"]["output"]
+            if isinstance(output_data, dict):
+                try:
+                    browser_output = BrowserOutput(**output_data)
+                    context_str += f"\n📝 Summary:\n{browser_output.text}\n"
+                    
+                    if browser_output.has_files():
+                        context_str += "\n📁 DOWNLOADED FILES (use these paths!):\n"
+                        for file_path in browser_output.files:
+                            context_str += f"   • {file_path}\n"
+                        
+                        context_str += "\n📊 File Details:\n"
+                        for fd in browser_output.file_details:
+                            size_kb = fd.size / 1024
+                            context_str += f"   • {fd.name} ({size_kb:.1f} KB)\n"
+                            context_str += f"     Path: {fd.path}\n"
+                except Exception:
+                    pass
+    
+    context_str += """
+============================================================
+🎯 YOUR JOB: Use the files/data above to complete the current task!
+============================================================
+"""
+    
+    return context_str
+```
+
+**Rendered Example**:
 ```
 ============================================================
 PREVIOUS AGENT WORK (Build on this!):
 ============================================================
 
-✅ Agent 1 (browser): Downloaded data from census.gov
+✅ Agent 1 (browser): Downloaded census demographic data
 
 📝 Summary:
-Downloaded demographic data from census.gov
+Successfully downloaded 2024 demographic data from census.gov
 
 📁 DOWNLOADED FILES (use these paths!):
    • /tmp/browser_agent_abc/demographics_2024.csv
 
 📊 File Details:
-   • demographics_2024.csv (512.0 KB)
+   • demographics_2024.csv (524.0 KB)
      Path: /tmp/browser_agent_abc/demographics_2024.csv
 
 ============================================================
@@ -436,159 +587,13 @@ Downloaded demographic data from census.gov
 ============================================================
 ```
 
-### Context Generation Code
-
-```python
-if self.context and self.context.get("previous_results"):
-    prev_results = self.context.get("previous_results", [])
-
-    for i, res in enumerate(prev_results, 1):
-        agent_type = res.get("method_used", "unknown")
-        action = res.get("action_taken", "")
-        success = "✅" if res.get("success") else "❌"
-
-        previous_work_context += f"\n{success} Agent {i} ({agent_type}): {action}\n"
-
-        if res.get("data"):
-            data = res.get("data", {})
-            output = data.get("output")
-
-            if isinstance(output, dict):
-                try:
-                    browser_output = BrowserOutput(**output)
-                    previous_work_context += f"\n📝 Summary:\n{browser_output.text}\n"
-
-                    if browser_output.has_files():
-                        previous_work_context += "\n📁 DOWNLOADED FILES (use these paths!):\n"
-                        for file_path in browser_output.files:
-                            previous_work_context += f"   • {file_path}\n"
-
-                        previous_work_context += "\n📊 File Details:\n"
-                        for file_detail in browser_output.file_details:
-                            size_kb = file_detail.size / 1024
-                            previous_work_context += f"   • {file_detail.name} ({size_kb:.1f} KB)\n"
-                            previous_work_context += f"     Path: {file_detail.path}\n"
-                except Exception:
-                    # Fallback for non-BrowserOutput data
-                    if output.get("text"):
-                        previous_work_context += f"\n📝 Summary:\n{output['text']}\n"
-```
-
 ---
 
-## Example Workflows
+## Conversation Memory
 
-### Case 1: Download & Process
+### Rolling Context Window
 
-```
-Task: "Download sales data from company portal, create chart in Numbers"
-
-1. Browser Agent:
-   - Navigates to portal
-   - Downloads sales_2024.csv to /tmp/browser_agent_xxx/
-   - Calls done() with file path
-   - Returns ActionResult with BrowserOutput
-
-2. GUI Agent receives context:
-   📁 DOWNLOADED FILES:
-      • /tmp/browser_agent_xxx/sales_2024.csv (1.2 MB)
-
-   🎯 YOUR JOB: Use the files above to complete the current task!
-
-3. GUI Agent:
-   - Opens Numbers app
-   - Imports /tmp/browser_agent_xxx/sales_2024.csv
-   - Creates formatted chart
-```
-
-### Case 2: Research & Document
-
-```
-Task: "Research fashion trends on census.gov, create presentation in Keynote"
-
-1. Browser Agent:
-   - Gathers census data
-   - Downloads 3 demographic files
-   - Calls done() with file list
-
-2. GUI Agent:
-   - Opens Keynote
-   - Creates slides using census data
-   - Formats presentation
-```
-
-### Case 3: Partial Success Handoff
-
-```
-Task: "Download report and email it"
-
-1. Browser Agent:
-   - Downloads report.pdf successfully
-   - Can't find email interface in browser
-   - Calls done() with: success=False, task_complete=True, files=[report.pdf]
-
-2. GUI Agent:
-   - Receives file path for report.pdf
-   - Opens Mail app
-   - Attaches report.pdf
-   - Composes and sends email
-```
-
----
-
-## Benefits of Type Safety
-
-| **Aspect**      | **Implementation**                     |
-| --------------- | -------------------------------------- |
-| Return Types    | `ActionResult` (Pydantic)              |
-| Field Access    | Direct attributes (`result.success`)   |
-| Type Checking   | Compile-time via mypy/IDE              |
-| IDE Support     | Full autocomplete and refactoring      |
-| Error Detection | Before runtime                         |
-| Documentation   | Self-documenting schemas               |
-| Maintenance     | Schema changes propagate automatically |
-| Performance     | No repeated serialization              |
-
----
-
-## Browser-Use Integration
-
-### Typed API Usage
-
-```python
-from browser_use import Agent, BrowserSession, BrowserProfile
-from browser_use.agent.views import AgentHistoryList
-
-# Create and run agent
-agent = Agent(
-    task=full_task,
-    llm=self.llm_client,
-    browser_session=browser_session,
-    max_failures=5,
-)
-
-result: AgentHistoryList = await agent.run(max_steps=30)
-
-# Use typed API
-agent_called_done = result.is_done()
-task_completed_successfully = result.is_successful()
-final_output = result.final_result()
-error_list = result.errors()
-```
-
-**No More `hasattr` Checks**: Browser-Use provides clean typed interface.
-
----
-
-## Conversation Context & Memory
-
-### Problem
-
-Agents had no memory of previous interactions, making them unable to respond to conversational queries like "What did you just do?" or "Can you explain that last step?".
-
-### Solution: Conversation History Tracking
-
-The system now maintains a rolling window of the last 10 user interactions and their results:
+The system maintains conversation history:
 
 ```python
 # In main.py
@@ -596,185 +601,204 @@ conversation_history = []
 
 while True:
     task = await get_task_input()
-
+    
     # Execute with conversation context
     result = await crew.execute_task(task, conversation_history)
-
+    
     # Store interaction
-    conversation_history.append({"user": task, "result": result})
-
+    conversation_history.append({
+        "user": task,
+        "result": result
+    })
+    
     # Keep last 10 interactions
     if len(conversation_history) > 10:
         conversation_history = conversation_history[-10:]
 ```
 
-### Coordinator Agent Integration
+### Context-Aware Responses
 
-The coordinator agent analyzes conversation history to provide contextual responses:
-
-```python
-async def analyze_task(self, task: str, conversation_history: list = None) -> TaskAnalysis:
-    """
-    Analyze task with conversation context.
-
-    Args:
-        task: Current user request
-        conversation_history: Last 10 interactions for context
-    """
-    if conversation_history:
-        history_context = "\n\nConversation History (for context):\n"
-        for i, entry in enumerate(conversation_history[-5:], 1):
-            user_msg = entry.get("user", "")
-            result = entry.get("result", {})
-            analysis = result.get("analysis", {})
-            direct_resp = (
-                analysis.get("direct_response")
-                if isinstance(analysis, dict)
-                else None
-            )
-
-            history_context += f"{i}. User: {user_msg}\n"
-            if direct_resp:
-                history_context += f"   Agent: {direct_resp}\n"
-```
-
-### Direct Response for Conversational Queries
-
-When a query is conversational (not an automation task), the coordinator provides a direct response:
+The Manager agent can provide direct responses for conversational queries:
 
 ```python
-class TaskAnalysis(BaseModel):
-    """Task analysis with direct response support."""
+# User: "What did you just download?"
+# Manager analyzes conversation history
+# Finds previous task result
+# Returns direct response without agent execution
 
-    direct_response: Optional[str] = Field(
-        default=None,
-        description="Direct response for conversational/informational queries that don't need agent execution"
+if is_conversational_query(task):
+    return TaskExecutionResult(
+        task=task,
+        overall_success=True,
+        result=generate_response_from_history(conversation_history),
+        error=None
     )
 ```
-
-**Example Flow**:
-
-```
-User: "Download image of Ronaldo"
-→ Executes browser agent
-
-User: "What did you just download?"
-→ Direct response: "I downloaded a high-resolution image of Cristiano Ronaldo..."
-   (No agent execution needed)
-```
-
-**Benefits**:
-
-- Natural conversation flow
-- Context-aware responses
-- Reduced unnecessary agent executions
-- Better user experience
 
 ---
 
-## User Interface Improvements
+## Example Workflows
 
-### Multi-Line Input Support
+### Workflow 1: Download & Process
 
-**Problem**: Users couldn't input multi-line tasks or complex instructions easily.
+**User**: "Download Tesla stock data and create chart in Excel"
 
-**Solution**: Enhanced terminal input with `prompt_toolkit`:
-
+**Decomposition**:
 ```python
-from prompt_toolkit import PromptSession
-from prompt_toolkit.key_binding import KeyBindings
-
-# Key bindings
-_key_bindings = KeyBindings()
-
-@_key_bindings.add("enter")
-def _(event):
-    """Submit input."""
-    event.current_buffer.validate_and_handle()
-
-@_key_bindings.add("escape", "enter")
-def _(event):
-    """Insert newline (Alt+Enter)."""
-    event.current_buffer.insert_text("\n")
-
-@_key_bindings.add("c-j")
-def _(event):
-    """Insert newline (Ctrl+J - alternative)."""
-    event.current_buffer.insert_text("\n")
-
-# Prompt session
-_prompt_session = PromptSession(
-    history=None,
-    multiline=True,
-    key_bindings=_key_bindings,
+TaskPlan(
+    reasoning="Requires web download followed by desktop processing",
+    subtasks=[
+        SubTask(
+            agent_type="browser",
+            description="Navigate to Yahoo Finance, download Tesla stock data for last 30 days",
+            expected_output="CSV with stock prices",
+            depends_on_previous=False
+        ),
+        SubTask(
+            agent_type="gui",
+            description="Open Excel, import CSV, create line chart of stock prices",
+            expected_output="Excel workbook with chart",
+            depends_on_previous=True
+        )
+    ]
 )
 ```
 
-### User Experience
+**Execution**:
+1. Browser: Downloads `tesla_stock.csv` → `/tmp/browser_agent_xyz/tesla_stock.csv`
+2. CrewAI: Passes file path in context
+3. GUI: Opens Excel, imports `/tmp/browser_agent_xyz/tesla_stock.csv`, creates chart
+4. Result: Excel workbook saved
 
-```
-💬 Enter your task:
-   Press Alt+Enter for new line, Enter to submit
+### Workflow 2: Research & Document
 
-➤ Sign up to website with these details:
-  Email: user@example.com
-  Phone: +1234567890
-  Password: SecurePass123!
-```
+**User**: "Research AI trends on news sites and create summary document"
 
-**Key Features**:
-
-- **Alt+Enter**: Insert newline for multi-line input
-- **Ctrl+J**: Alternative newline (more compatible across terminals)
-- **Enter**: Submit task
-- **History**: Input history with up/down arrows
-- **Editing**: Full line editing capabilities (backspace, arrow keys, home/end)
-
-### Professional Styling
-
+**Decomposition**:
 ```python
-async def get_task_input() -> str:
-    """
-    Get user input with enhanced terminal UI.
-
-    Supports multi-line input via Alt+Enter or Ctrl+J.
-    """
-    console.print()
-    console.print("[#00d7ff]💬 Enter your task:[/]")
-    console.print(
-        "[dim]   Press [cyan]Alt+Enter[/cyan] for new line, [cyan]Enter[/cyan] to submit[/dim]"
-    )
-    console.print()
-
-    prompt_text = FormattedText([("#00d7ff bold", "➤ ")])
-
-    task = await _prompt_session.prompt_async(
-        prompt_text,
-        prompt_continuation=FormattedText([("", "  ")]),
-    )
-    return task.strip()
+TaskPlan(
+    subtasks=[
+        SubTask(
+            agent_type="browser",
+            description="Visit tech news sites, extract AI trend articles, save key points",
+            expected_output="Text file with extracted information",
+            depends_on_previous=False
+        ),
+        SubTask(
+            agent_type="gui",
+            description="Open TextEdit, create formatted document with research findings",
+            expected_output="Text document with summary",
+            depends_on_previous=True
+        )
+    ]
+)
 ```
 
-**Benefits**:
+### Workflow 3: Multi-Step File Operation
 
-- Professional appearance
-- Clear instructions
-- Intuitive keyboard shortcuts
-- Better accessibility
-- Emoji support without XML parsing issues
+**User**: "Download report and move it to Documents with today's date in filename"
+
+**Decomposition**:
+```python
+TaskPlan(
+    subtasks=[
+        SubTask(
+            agent_type="browser",
+            description="Download quarterly report PDF",
+            expected_output="PDF file",
+            depends_on_previous=False
+        ),
+        SubTask(
+            agent_type="system",
+            description="Move downloaded PDF to Documents folder, rename with today's date",
+            expected_output="File moved and renamed",
+            depends_on_previous=True
+        )
+    ]
+)
+```
+
+**Execution**:
+1. Browser: Downloads to `/tmp/browser_agent_xyz/report.pdf`
+2. CrewAI: Passes path
+3. System: `mv /tmp/browser_agent_xyz/report.pdf ~/Documents/report_2025-01-15.pdf`
+
+---
+
+## Benefits of CrewAI Architecture
+
+### Automatic Context Management
+
+| Feature | CrewAI | Manual Approach |
+|---------|--------|-----------------|
+| Context Passing | Automatic | Manual serialization |
+| Type Safety | Built-in | Custom implementation |
+| Task Chaining | Sequential process | Custom orchestration |
+| Error Handling | Framework-level | Manual try/catch |
+| Memory | Built-in support | Custom storage |
+
+### Intelligent Task Decomposition
+
+- **Adaptive**: LLM analyzes each unique request
+- **Optimal**: Minimizes steps while ensuring success
+- **Context-Aware**: Considers conversation history
+- **Scalable**: Works with any complexity level
+
+### Type-Safe Communication
+
+- **Pydantic Schemas**: Compile-time type checking
+- **IDE Support**: Full autocomplete
+- **Validation**: Automatic data validation
+- **Documentation**: Self-documenting schemas
 
 ---
 
 ## Future Enhancements
 
-- [ ] Automatic file cleanup after task completion
-- [ ] Cloud storage integration (S3, Google Drive)
-- [ ] File type detection and preview generation
-- [ ] Checksum verification for downloads
-- [ ] Progress tracking for large downloads
-- [ ] Persistent context across sessions
-- [ ] Cost tracking per agent execution
+### Parallel Execution
+
+```python
+# Currently sequential
+process=Process.sequential
+
+# Future: Parallel for independent tasks
+process=Process.parallel
+```
+
+### Persistent Memory
+
+```python
+# CrewAI memory feature
+crew = Crew(
+    agents=[...],
+    tasks=[...],
+    memory=True,  # Agents remember across sessions
+)
+```
+
+### Entity Knowledge Base
+
+```python
+from crewai import Entity
+
+# Structured knowledge storage
+nvidia = Entity(
+    name="Nvidia Corporation",
+    stock_symbol="NVDA",
+    last_price=195.21,
+    updated="2025-01-15"
+)
+```
 
 ---
 
-**End of Documentation**
+## Summary
+
+✅ **CrewAI Orchestration**: Professional multi-agent coordination  
+✅ **Task Decomposition**: LLM-powered intelligent planning  
+✅ **Automatic Context**: No manual serialization needed  
+✅ **Type Safety**: Pydantic schemas throughout  
+✅ **File Tracking**: Automatic path discovery and resolution  
+✅ **Principle-Based**: Scalable agent guidelines  
+
+**The system leverages CrewAI's powerful orchestration to provide enterprise-grade automation!** 🚀

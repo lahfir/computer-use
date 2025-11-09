@@ -28,6 +28,7 @@ dependencies = [
     "twilio>=9.0.0",
     "flask>=3.0.0",
     "pyngrok>=7.0.0",
+    "pynput>=1.7.6",
 ]
 
 [project.optional-dependencies]
