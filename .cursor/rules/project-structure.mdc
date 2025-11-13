@@ -20,7 +20,7 @@ src/
 ├── services/       # Business logic and API calls
 ├── utils/          # Utility functions and helpers
 ├── types/          # Type definitions (TypeScript)
-├── constants/      # Application constants
+├── constants/      # Application constantsN
 ├── hooks/          # Custom React hooks (if applicable)
 ├── pages/          # Page components
 └── tests/          # Test files

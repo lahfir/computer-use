@@ -14,7 +14,6 @@ from .crew_tools import (
     TypeTextTool,
     OpenApplicationTool,
     ReadScreenTextTool,
-    GetAppTextTool,
     ScrollTool,
     ListRunningAppsTool,
     CheckAppRunningTool,
@@ -184,7 +183,6 @@ class ComputerUseCrew:
             "type_text": TypeTextTool(),
             "open_application": OpenApplicationTool(),
             "read_screen_text": ReadScreenTextTool(),
-            "get_app_text": GetAppTextTool(),
             "scroll": ScrollTool(),
             "list_running_apps": ListRunningAppsTool(),
             "check_app_running": CheckAppRunningTool(),
@@ -371,7 +369,7 @@ class ComputerUseCrew:
                     description="Agent type: 'browser', 'gui', or 'system'"
                 )
                 description: str = Field(
-                    description="Clear, specific task description for this agent"
+                    description="Clear, specific task description with ALL actual values included (passwords, emails, URLs) - no references like 'provided password'"
                 )
                 expected_output: str = Field(
                     description="What this agent should produce"
@@ -466,13 +464,15 @@ ORCHESTRATION RULES:
 4. Each subtask must have CLEAR, ACTIONABLE description
 5. Expected output must specify EXACTLY what the agent will produce
 
+
 🚨 CRITICAL FOR BROWSER TASKS:
 - Browser agent uses ONE web_automation tool call per subtask
 - Be EXTREMELY SPECIFIC about what webpage to visit and what data to extract
+- INCLUDE ALL ACTUAL VALUES: passwords, emails, URLs directly in task description (NOT "provided password" but "password: xyz123") if explicitly provided by the user.
 - Format: "Go to [exact URL] and extract [exact data]" - NOT "research X" or "find Y"
 - Example GOOD: "Navigate to https://finance.yahoo.com/quote/NVDA, extract current stock price and 5-day historical prices into structured format"
 - Example BAD: "Research Nvidia stock price" (too vague, agent will hallucinate multiple steps)
-- If task needs multiple web actions, create MULTIPLE browser subtasks
+- Never create multiple tasks for the browser agent. Add all tasks in one task, if the entire task includes multiple web actions, just add all the actions in one task.
 
 Analyze the request and create an optimal task plan:"""
 

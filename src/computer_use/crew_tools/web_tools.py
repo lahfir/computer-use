@@ -61,6 +61,13 @@ class WebAutomationTool(BaseTool):
         Execute web automation task.
         Wraps browser_tool.execute_task.
 
+        Event Loop Management:
+        - CrewAI calls this synchronously from a thread pool executor
+        - The browser_use agent needs an event loop for async operations
+        - The LLM client was initialized in the main event loop
+        - We must use the SAME event loop to avoid "Event loop is closed" errors
+        - Strategy: Reuse existing loop if available, only create new if necessary
+
         Args:
             task: Web task description
             url: Optional starting URL
@@ -77,12 +84,69 @@ class WebAutomationTool(BaseTool):
         if not browser_tool:
             return "ERROR: Browser tool unavailable - browser tool not initialized"
 
-        # Execute in new event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Event loop management: handle both async and sync calling contexts
         try:
-            result = loop.run_until_complete(browser_tool.execute_task(task, url))
+            running_loop = asyncio.get_running_loop()
+            # We're in an async context, but CrewAI called us synchronously
+            # This shouldn't happen, but if it does, we need to handle it
+            print_info(
+                "⚠️ Warning: Running in async context, using nest_asyncio workaround"
+            )
+            import nest_asyncio
 
+            nest_asyncio.apply()
+            result = running_loop.run_until_complete(
+                browser_tool.execute_task(task, url)
+            )
+        except RuntimeError:
+            # No running loop - we need to create one or use an existing loop
+            # Try to get the event loop that was used to create the LLM clients
+            try:
+                # Get the existing event loop if available
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    # Loop is closed, create a new one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    need_cleanup = True
+                else:
+                    # Reuse existing loop
+                    need_cleanup = False
+            except RuntimeError:
+                # No event loop at all, create one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                need_cleanup = True
+
+            try:
+                result = loop.run_until_complete(browser_tool.execute_task(task, url))
+            finally:
+                # Only clean up if we created a new loop
+                if need_cleanup:
+                    try:
+                        # Cancel all pending tasks
+                        pending = asyncio.all_tasks(loop)
+                        for pending_task in pending:
+                            pending_task.cancel()
+
+                        # Allow tasks to complete cancellation
+                        if pending:
+                            loop.run_until_complete(
+                                asyncio.gather(*pending, return_exceptions=True)
+                            )
+
+                        # Shutdown async generators
+                        loop.run_until_complete(loop.shutdown_asyncgens())
+
+                        # Shutdown default executor
+                        loop.run_until_complete(loop.shutdown_default_executor())
+                    except Exception as cleanup_error:
+                        print_info(f"⚠️ Event loop cleanup warning: {cleanup_error}")
+                    finally:
+                        loop.close()
+
+        # Process result
+        try:
             if result.success:
                 # Build structured output for CrewAI context passing
                 output_parts = [f"✅ SUCCESS: {result.action_taken}"]
@@ -111,10 +175,7 @@ class WebAutomationTool(BaseTool):
                 error_str = f"❌ FAILED: {result.action_taken}\n⚠️ Error: {result.error}"
                 print_info(f"❌ Browser automation failed: {result.error}")
                 return error_str
-
         except Exception as e:
             error_msg = f"❌ ERROR: Browser automation exception - {str(e)}"
             print_info(f"❌ {error_msg}")
             return error_msg
-        finally:
-            loop.close()
