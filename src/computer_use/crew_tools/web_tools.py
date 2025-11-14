@@ -147,6 +147,13 @@ class WebAutomationTool(BaseTool):
 
         # Process result
         try:
+            has_data = False
+            if result.data:
+                has_data = any(
+                    key in result.data
+                    for key in ["output", "text", "file_path", "download_path"]
+                )
+
             if result.success:
                 # Build structured output for CrewAI context passing
                 output_parts = [f"✅ SUCCESS: {result.action_taken}"]
@@ -171,7 +178,33 @@ class WebAutomationTool(BaseTool):
                 output_str = "".join(output_parts)
                 print_info(f"✅ Browser automation completed: {result.action_taken}")
                 return output_str
+            elif has_data:
+                print_info(
+                    f"⚠️ Browser automation partially completed: {result.action_taken}"
+                )
+                output_parts = [
+                    f"⚠️ PARTIAL SUCCESS: {result.action_taken}",
+                    f"\n⚠️ Note: Task completed partially. {result.error or 'Some operations failed.'}",
+                ]
+
+                if "output" in result.data:
+                    output_parts.append(
+                        f"\n📊 EXTRACTED DATA:\n{result.data['output']}"
+                    )
+                if "text" in result.data:
+                    output_parts.append(f"\n📝 TEXT:\n{result.data['text']}")
+                if "file_path" in result.data:
+                    output_parts.append(
+                        f"\n📁 DOWNLOADED FILE: {result.data['file_path']}"
+                    )
+                if "download_path" in result.data:
+                    output_parts.append(
+                        f"\n📁 DOWNLOADED FILE: {result.data['download_path']}"
+                    )
+
+                return "".join(output_parts)
             else:
+                # Complete failure with no useful data
                 error_str = f"❌ FAILED: {result.action_taken}\n⚠️ Error: {result.error}"
                 print_info(f"❌ Browser automation failed: {result.error}")
                 return error_str
