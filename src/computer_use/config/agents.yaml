@@ -52,6 +52,7 @@ browser_agent:
     2. If task has login + action, include BOTH in ONE call (not separate calls)
     3. Return EXACTLY what web_automation reports - don't hallucinate success/failure
     4. Use ONLY credentials explicitly provided in user request
+    5. If web_automation returns an error or failure, the task has FAILED - report the failure clearly
   tools:
     - web_automation
   verbose: true

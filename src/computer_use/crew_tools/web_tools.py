@@ -204,11 +204,10 @@ class WebAutomationTool(BaseTool):
 
                 return "".join(output_parts)
             else:
-                # Complete failure with no useful data
                 error_str = f"❌ FAILED: {result.action_taken}\n⚠️ Error: {result.error}"
                 print_info(f"❌ Browser automation failed: {result.error}")
-                return error_str
+                raise Exception(error_str)
         except Exception as e:
             error_msg = f"❌ ERROR: Browser automation exception - {str(e)}"
             print_info(f"❌ {error_msg}")
-            return error_msg
+            raise Exception(error_msg)

@@ -90,6 +90,12 @@ ORCHESTRATION RULES:
 4. Each subtask must have CLEAR, ACTIONABLE description
 5. Expected output must specify EXACTLY what the agent will produce
 
+🚨 CRITICAL TASK DEPENDENCY RULES:
+- If subtask B depends on subtask A (depends_on_previous=True), subtask B will ONLY execute if subtask A succeeds
+- If subtask A fails, the entire workflow stops - no subsequent tasks will run
+- Design your task plan so that failures in critical steps prevent unnecessary work
+- Example: If "download wallpaper" fails, don't try "set wallpaper" because there's no file to set
+
 
 🚨 CRITICAL FOR BROWSER TASKS:
 - Be EXTREMELY SPECIFIC about webpage URL and what data to extract/action to perform
