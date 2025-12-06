@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 from ..schemas.actions import ActionResult
-from ..utils.ui import action_spinner, print_action_result
+from ..utils.ui import action_spinner, dashboard, print_action_result
 from ..utils.ocr_targeting import (
     score_ocr_candidate,
     filter_candidates_by_spatial_context,
@@ -37,7 +37,10 @@ def check_cancellation() -> Optional[ActionResult]:
 class ClickInput(BaseModel):
     """Input for clicking an element."""
 
-    target: str = Field(description="Element to click (e.g., 'Light', 'Save button')")
+    target: Optional[str] = Field(
+        default="element",
+        description="Element to click (e.g., 'Light', 'Save button'). Optional when element_id is provided.",
+    )
     element_id: Optional[str] = Field(
         default=None,
         description="Unique element ID from get_accessible_elements. BEST method - uses native click.",
@@ -76,7 +79,7 @@ class ClickElementTool(BaseTool):
 
     def _run(
         self,
-        target: str,
+        target: Optional[str] = "element",
         element_id: Optional[str] = None,
         element: Optional[dict] = None,
         visual_context: Optional[str] = None,
@@ -99,6 +102,9 @@ class ClickElementTool(BaseTool):
         """
         if cancelled := check_cancellation():
             return cancelled
+
+        target = target or "element"
+        dashboard.set_action("Clicking", target, progress=20)
 
         accessibility_tool = self._tool_registry.get_tool("accessibility")
 
@@ -325,6 +331,9 @@ class TypeTextTool(BaseTool):
                 confidence=0.0,
                 error="No text provided",
             )
+
+        display_text = text[:20] + "..." if len(text) > 20 else text
+        dashboard.set_action("Typing", display_text, progress=50)
 
         input_tool = self._tool_registry.get_tool("input")
 

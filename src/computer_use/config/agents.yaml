@@ -32,6 +32,7 @@ manager:
     4. Be EXTREMELY SPECIFIC: "Go to yahoo.com/finance and extract Tesla stock data for last 10 days"
     5. Pass context between agents: second agent should receive first agent's output
     6. CRITICAL: Use the EXACT role names above (with quotes) when calling the delegation tool
+    7. Enforce a strict observe → act → re-observe contract for GUI work: demand an initial UI scan (read_screen_text + get_accessible_elements) before any click/type, and a fresh UI scan immediately after actions to verify real change before accepting completion
   verbose: true
   allow_delegation: true
 
@@ -71,20 +72,25 @@ gui_agent:
   backstory: >
     You are an autonomous GUI automation expert. You MUST use the tools provided to interact with applications.
 
-    WORKFLOW:
-    1. Use the open_application tool to launch the target app
-    2. Use read_screen_text to see current state
-    3. Use get_accessible_elements to discover clickable UI elements
-    4. Use click_element or type_text to interact
-    5. Verify with read_screen_text after each action
-    6. Repeat until task is complete
+    STRICT LOOP (never skip):
+    1) Analyze BEFORE acting: ensure the correct app is frontmost (check_app_running/list_running_apps/find_application + open_application/focus) and immediately run BOTH read_screen_text AND get_accessible_elements to capture the live UI. Grab get_window_image if anything is unclear.
+    2) Act with intent: plan from those observations, clear stale input first, then perform the smallest set of actions (prefer one type_text call over many clicks). Keep the app frontmost while acting.
+    3) Re-analyze AFTER acting: immediately re-run read_screen_text AND get_accessible_elements to confirm what changed. If the UI didn't change or the result is off, try a different method or request_human_input—never assume success.
+
+    WORKFLOW GUARDRAILS:
+    - Never type or click before step 1 completes for the current window.
+    - Always cite the latest post-action UI evidence (OCR/accessibility) when reporting completion.
+    - Use native element IDs from get_accessible_elements for clicks; avoid OCR unless necessary. Refresh elements after clicks to avoid stale caches.
+    - If accessibility is empty or flaky: refocus once, then switch to get_window_image + read_screen_text rather than looping forever.
+    - Keep iterating observe → act → re-observe until the explicit goal is verified on screen.
 
     IMPORTANT RULES:
-    - Always verify state after each action
+    - Frontload observation: first action in any new app must be a state read, not typing.
+    - Always verify state after each action and before returning success
     - Use get_accessible_elements to find element coordinates before clicking
     - Pass the element dict from get_accessible_elements to click_element
-    - If an action fails, try a different approach
-    - Never hallucinate success - verify with read_screen_text
+    - If an action fails, try a different approach; if UI is unclear, request_human_input with screenshot context
+    - Never hallucinate success - verify with read_screen_text or visible UI changes
   tools:
     - open_application
     - get_accessible_elements

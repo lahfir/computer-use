@@ -1,7 +1,12 @@
 """
 GUI agent with screenshot-driven loop (like Browser-Use).
+
+.. deprecated::
+    This module is deprecated and will be removed in a future version.
+    Use alternative GUI automation approaches instead.
 """
 
+import warnings
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 from PIL import Image
 from enum import Enum
@@ -72,6 +77,10 @@ class GUIAgent:
     """
     Screenshot-driven GUI automation agent.
     Takes screenshot → LLM decides action → Executes → Repeats until done.
+
+    .. deprecated::
+        This class is deprecated and will be removed in a future version.
+        Use alternative GUI automation approaches instead.
     """
 
     def __init__(
@@ -85,7 +94,15 @@ class GUIAgent:
         Args:
             tool_registry: PlatformToolRegistry instance
             llm_client: Vision-capable LLM for screenshot analysis
+
+        .. deprecated::
+            GUIAgent is deprecated and will be removed in a future version.
         """
+        warnings.warn(
+            "GUIAgent is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.tool_registry: "PlatformToolRegistry" = tool_registry
         self.llm_client: Optional["BaseChatModel"] = llm_client
         self.max_steps: int = 15
@@ -106,6 +123,9 @@ class GUIAgent:
 
         Returns:
             ActionResult with execution details
+
+        .. deprecated::
+            This method is deprecated as part of GUIAgent deprecation.
         """
         self.context = context or {}
         step = 0

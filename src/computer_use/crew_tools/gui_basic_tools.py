@@ -11,7 +11,7 @@ from typing import Optional, Set
 
 from ..schemas.actions import ActionResult
 from ..config.timing_config import get_timing_config
-from ..utils.ui import action_spinner, print_action_result
+from ..utils.ui import ActionType, action_spinner, dashboard, print_action_result
 
 
 def check_cancellation() -> Optional[ActionResult]:
@@ -507,15 +507,22 @@ class ListRunningAppsTool(BaseTool):
                         x in a.lower()
                         for x in ["helper", "agent", "service", "extension", "server"]
                     )
-                ][:25]
-                apps_summary = ", ".join(visible_apps)
+                ]
+                top_visible = visible_apps[:10]
+                apps_summary = ", ".join(top_visible)
+                if len(visible_apps) > len(top_visible):
+                    apps_summary += f" … +{len(visible_apps) - len(top_visible)} more"
 
                 return ActionResult(
                     success=True,
-                    action_taken=f"Found {len(unique_apps)} apps. User-facing: {apps_summary}",
+                    action_taken=f"Found {len(unique_apps)} apps. User-facing (sample): {apps_summary}",
                     method_used="accessibility",
                     confidence=1.0,
-                    data={"running_apps": unique_apps, "count": len(unique_apps)},
+                    data={
+                        "running_apps": unique_apps,
+                        "count": len(unique_apps),
+                        "visible_sample": top_visible,
+                    },
                 )
             else:
                 return ActionResult(
@@ -648,6 +655,7 @@ class GetAccessibleElementsTool(BaseTool):
             )
 
         try:
+            dashboard.set_action("Scanning", f"{app_name} UI", progress=30)
             elements = []
             with action_spinner("Scanning", f"{app_name} UI"):
                 if hasattr(accessibility_tool, "invalidate_cache"):
@@ -761,9 +769,14 @@ class GetAccessibleElementsTool(BaseTool):
                 if meaningful_elements
                 else normalized_elements[:75]
             )
+            display_limit = 15
+            truncated_note = ""
+            if len(result_elements) > display_limit:
+                truncated_note = f"\n... +{len(result_elements) - display_limit} more"
+            display_elements = result_elements[:display_limit]
 
             element_lines = []
-            for e in result_elements:
+            for e in display_elements:
                 elem_id = e.get("element_id", "")
                 label = e.get("label", "")
                 role = e.get("role", "")
@@ -774,6 +787,7 @@ class GetAccessibleElementsTool(BaseTool):
             elements_summary = (
                 "\n".join(element_lines) if element_lines else "No elements found"
             )
+            elements_summary += truncated_note
 
             import hashlib
 
@@ -784,20 +798,20 @@ class GetAccessibleElementsTool(BaseTool):
                 _get_elements_state["repeat_count"] += 1
                 if _get_elements_state["repeat_count"] >= 2:
                     ui_changed_msg = (
-                        "\n\n⚠️ WARNING: UI unchanged! Elements are the same as before. "
+                        "\n\nWARNING: UI unchanged! Elements are the same as before. "
                         "Your previous action likely FAILED. Try: scroll first, click a different element, "
                         "or use take_screenshot to see the actual state."
                     )
             else:
                 _get_elements_state["repeat_count"] = 0
-                ui_changed_msg = "\n\n✅ UI changed - new elements detected."
+                ui_changed_msg = "\n\nUI changed - new elements detected."
 
             _get_elements_state["last_hash"] = current_hash
 
             return ActionResult(
                 success=True,
                 action_taken=(
-                    f"Found {len(result_elements)} UI elements in {app_name}:\n\n{elements_summary}"
+                    f"Found {len(result_elements)} UI elements in {app_name} (showing {len(display_elements)}):\n\n{elements_summary}"
                     f"{ui_changed_msg}\n\n"
                     f"To click: use click_element(element_id='<id>', current_app='{app_name}')"
                 ),
@@ -967,21 +981,38 @@ class RequestHumanInputTool(BaseTool):
         Returns:
             ActionResult with user's response
         """
-        from rich.console import Console
+        from rich import box
         from rich.panel import Panel
+        from rich.text import Text
 
-        console = Console()
+        from ..utils.ui import THEME, console
 
-        # Display the request
+        was_running = dashboard._is_running
+        if was_running:
+            dashboard.stop_dashboard()
+
+        dashboard.add_log_entry(
+            ActionType.ANALYZE,
+            "Requesting human input",
+            question[:30],
+            status="pending",
+        )
+
+        panel_content = Text()
+        panel_content.append("Context: ", style=f"bold {THEME['muted']}")
+        panel_content.append(f"{context}\n\n", style=THEME["fg"])
+        panel_content.append("Question: ", style=f"bold {THEME['warning']}")
+        panel_content.append(f"{question}\n\n", style=THEME["fg"])
+        panel_content.append("Type your response below:", style=THEME["muted"])
+
         console.print()
         console.print(
             Panel(
-                f"[bold yellow]🤔 Human Input Needed[/bold yellow]\n\n"
-                f"[bold]Context:[/bold] {context}\n\n"
-                f"[bold]Question:[/bold] {question}\n\n"
-                f"[dim]Please type your response below:[/dim]",
-                title="⚠️  Agent Requesting Input",
-                border_style="yellow",
+                panel_content,
+                title=f"[{THEME['warning']}]Input Required[/]",
+                border_style=THEME["warning"],
+                box=box.ROUNDED,
+                padding=(1, 2),
             )
         )
 
@@ -991,19 +1022,10 @@ class RequestHumanInputTool(BaseTool):
             sys.stdout.flush()
             sys.stderr.flush()
 
-            separator = "=" * 80
-            print(f"\n{separator}")
-            print("🤖 AGENT NEEDS YOUR INPUT:")
-            print(f"CONTEXT: {context}")
-            print(f"QUESTION: {question}")
-            print(separator)
-            print("Please type your response and press Enter:")
-            sys.stdout.flush()
-
-            user_response = input("> ").strip()
+            user_response = console.input(f"[bold {THEME['primary']}]> [/]").strip()
 
             if not user_response:
-                print("⚠️  Empty response received, treating as cancellation")
+                console.print(f"  [{THEME['warning']}]Empty response - cancelled[/]")
                 return ActionResult(
                     success=False,
                     action_taken="Requested human input",
@@ -1012,7 +1034,11 @@ class RequestHumanInputTool(BaseTool):
                     error="User provided empty response",
                 )
 
-            print(f"✅ Received: {user_response}\n")
+            console.print(f"  [{THEME['success']}]Received: {user_response}[/]\n")
+
+            if was_running:
+                dashboard.start_dashboard()
+
             return ActionResult(
                 success=True,
                 action_taken=f"Received human input: {user_response}",
@@ -1022,7 +1048,7 @@ class RequestHumanInputTool(BaseTool):
             )
 
         except (KeyboardInterrupt, EOFError) as e:
-            print(f"\n⚠️  Input cancelled: {e}")
+            console.print(f"\n  [{THEME['warning']}]Input cancelled: {e}[/]")
             return ActionResult(
                 success=False,
                 action_taken="User cancelled input request",

@@ -34,10 +34,6 @@ class OCRTool:
             use_gpu: Whether to use GPU
         """
         self.engine = create_ocr_engine(use_gpu=use_gpu)
-        if not self.engine:
-            print("⚠️  No OCR engine available")
-
-        # Get all available engines for fallback
         self.fallback_engines = get_all_available_ocr_engines(use_gpu=use_gpu)
 
     def find_text(
@@ -63,28 +59,13 @@ class OCRTool:
         if not self.fallback_engines:
             return []
 
-        from ...utils.ui import console
-
-        for idx, engine in enumerate(self.fallback_engines):
-            engine_name = engine.__class__.__name__.replace("Engine", "").replace(
-                "OCR", ""
-            )
-
+        for engine in self.fallback_engines:
             try:
-                with console.status(
-                    f"      [{engine_name}] Processing...", spinner="dots"
-                ):
-                    results = engine.recognize_text(screenshot, region=region)
+                results = engine.recognize_text(screenshot, region=region)
 
                 if not results or len(results) == 0:
-                    console.print(
-                        f"      [{engine_name}] No text found, trying next engine"
-                    )
                     continue
 
-                console.print(
-                    f"      [{engine_name}] Found {len(results)} text items, matching..."
-                )
                 matches = []
                 target_lower = target_text.lower()
 
@@ -115,20 +96,11 @@ class OCRTool:
                         )
 
                 if matches:
-                    console.print(f"      [{engine_name}] Matched '{matches[0].text}'")
                     return matches
-                else:
-                    console.print(
-                        f"      [{engine_name}] Text found but no match for '{target_text}', trying next"
-                    )
 
-            except Exception as e:
-                console.print(
-                    f"      [{engine_name}] Error: {str(e)[:50]}, trying next"
-                )
+            except Exception:
                 continue
 
-        console.print("      [OCR] All engines exhausted, no match found")
         return []
 
     def extract_all_text(self, screenshot: Image.Image) -> List[OCRResult]:

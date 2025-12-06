@@ -17,21 +17,16 @@ class ScreenshotTool:
     """
 
     def __init__(self):
-        """
-        Initialize and detect display scaling.
-        """
+        """Initialize and detect display scaling."""
         self.scaling_factor = self._detect_scaling()
         self.os_type = platform.system().lower()
-        self.active_window_bounds = None  # Store active window bounds
+        self.active_window_bounds = None
 
     def _detect_scaling(self) -> float:
-        """
-        Detect display scaling factor (Retina = 2.0, normal = 1.0).
-        """
+        """Detect display scaling factor (Retina = 2.0, normal = 1.0)."""
         screen_size = pyautogui.size()
         test_screenshot = pyautogui.screenshot()
 
-        # If screenshot is larger than screen, we have scaling
         if test_screenshot.width > screen_size.width:
             scaling = test_screenshot.width / screen_size.width
             return scaling
@@ -57,7 +52,6 @@ class ScreenshotTool:
             else:
                 return self._capture_active_window_linux(app_name)
         except Exception as e:
-            print(f"  ❌ Window capture failed for '{app_name}': {e}")
             raise RuntimeError(
                 f"Failed to capture window for '{app_name}': {e}. "
                 "Make sure the application is running and visible."
@@ -66,7 +60,7 @@ class ScreenshotTool:
     def _capture_active_window_macos(
         self, app_name: Optional[str] = None
     ) -> Tuple[Image.Image, Dict[str, Any]]:
-        """Capture active window on macOS using Quartz - captures ACTUAL window, not overlapping content."""
+        """Capture active window on macOS using Quartz."""
         from Quartz import (
             CGWindowListCopyWindowInfo,
             CGWindowListCreateImage,
@@ -102,9 +96,6 @@ class ScreenshotTool:
                 for w in window_list
                 if w.get("kCGWindowLayer", 999) == 0
             ]
-            print(
-                f"  ❌ Window '{app_name}' not found. Available apps: {available_apps[:5]}"
-            )
             raise RuntimeError(
                 f"Window '{app_name}' not found. Available: {available_apps[:5]}. "
                 "Verify app is running and visible."
@@ -117,12 +108,6 @@ class ScreenshotTool:
         height = int(bounds["Height"])
         window_id = target_window["kCGWindowNumber"]
 
-        # CRITICAL FIX: Capture the ACTUAL WINDOW by its ID, not screen pixels at those coordinates
-        # This gets the window content even if other windows are overlapping
-        print(
-            f"  🎯 Capturing window ID {window_id} for {target_window.get('kCGWindowOwnerName', 'Unknown')}..."
-        )
-
         cgimage = CGWindowListCreateImage(
             CGRectNull,
             kCGWindowListOptionIncludingWindow,
@@ -131,39 +116,22 @@ class ScreenshotTool:
         )
 
         if not cgimage:
-            print(
-                f"  ❌ Failed to capture window ID {window_id}, falling back to region capture"
-            )
-            # Fallback to old method if window capture fails
             region = (x, y, width, height)
             screenshot = self.capture(region=region)
         else:
-            # Convert CGImage to PIL Image
             width_px = CG.CGImageGetWidth(cgimage)
             height_px = CG.CGImageGetHeight(cgimage)
             bytes_per_row = CG.CGImageGetBytesPerRow(cgimage)
 
-            # Get the bitmap data
             provider = CG.CGImageGetDataProvider(cgimage)
             data = CG.CGDataProviderCopyData(provider)
 
-            # Create PIL Image from raw data
-            from PIL import Image
             import numpy as np
 
-            # Convert CFData to bytes
             byte_data = bytes(data)
-
-            # Create numpy array
             img_array = np.frombuffer(byte_data, dtype=np.uint8)
-
-            # Reshape to image dimensions (BGRA format on macOS)
             img_array = img_array.reshape((height_px, bytes_per_row // 4, 4))
-
-            # Convert BGRA to RGBA
             img_array = img_array[:, :width_px, [2, 1, 0, 3]]
-
-            # Create PIL Image
             screenshot = Image.fromarray(img_array, "RGBA")
 
         self.active_window_bounds = {
@@ -174,19 +142,12 @@ class ScreenshotTool:
             "captured": True,
         }
 
-        print(
-            f"  📸 Captured {target_window.get('kCGWindowOwnerName', 'Unknown')} at ({x}, {y}, {width}x{height}) [actual window, not overlapping content]"
-        )
-
         return screenshot, self.active_window_bounds
 
     def _capture_active_window_windows(
         self, app_name: Optional[str] = None
     ) -> Tuple[Image.Image, Dict[str, Any]]:
-        """
-        Capture active window on Windows.
-        """
-        # Fallback for now
+        """Capture active window on Windows."""
         return self.capture(), {
             "x": 0,
             "y": 0,
@@ -198,10 +159,7 @@ class ScreenshotTool:
     def _capture_active_window_linux(
         self, app_name: Optional[str] = None
     ) -> Tuple[Image.Image, Dict[str, Any]]:
-        """
-        Capture active window on Linux.
-        """
-        # Fallback for now
+        """Capture active window on Linux."""
         return self.capture(), {
             "x": 0,
             "y": 0,
@@ -239,7 +197,6 @@ class ScreenshotTool:
             PIL Image object at full resolution
         """
         if region:
-            # Scale region to screenshot coordinates
             x, y, w, h = region
             scaled_region = (
                 int(x * self.scaling_factor),

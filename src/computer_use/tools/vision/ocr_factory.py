@@ -16,12 +16,11 @@ def get_all_available_ocr_engines(use_gpu: Optional[bool] = None) -> List[OCREng
         use_gpu: Whether to use GPU. If None, auto-detect.
 
     Returns:
-        List of available OCR engines (Vision → Paddle → EasyOCR)
+        List of available OCR engines (Vision -> Paddle -> EasyOCR)
     """
     engines = []
     system = platform.system().lower()
 
-    # Try Vision Framework first (macOS only)
     if system == "darwin":
         try:
             from .macos_vision_ocr import MacOSVisionOCR
@@ -32,7 +31,6 @@ def get_all_available_ocr_engines(use_gpu: Optional[bool] = None) -> List[OCREng
         except Exception:
             pass
 
-    # Try PaddleOCR (all platforms)
     try:
         from .paddleocr_engine import PaddleOCREngine
 
@@ -42,7 +40,6 @@ def get_all_available_ocr_engines(use_gpu: Optional[bool] = None) -> List[OCREng
     except Exception:
         pass
 
-    # Try EasyOCR as final fallback
     try:
         from .easyocr_engine import EasyOCREngine
 
@@ -65,6 +62,8 @@ def create_ocr_engine(use_gpu: Optional[bool] = None) -> Optional[OCREngine]:
     Returns:
         OCR engine instance with recognize_text method
     """
+    from ...utils.ui import console, THEME, dashboard, VerbosityLevel
+
     system = platform.system().lower()
 
     if system == "darwin":
@@ -72,27 +71,29 @@ def create_ocr_engine(use_gpu: Optional[bool] = None) -> Optional[OCREngine]:
 
         engine = MacOSVisionOCR()
         if engine.is_available():
-            print("✅ Using Apple Vision Framework OCR (native, ultra-fast)")
+            if dashboard.verbosity == VerbosityLevel.VERBOSE:
+                console.print(
+                    f"[{THEME['success']}]Using Apple Vision Framework OCR[/]"
+                )
             return engine
-        print("⚠️  Vision Framework not available, falling back to PaddleOCR")
 
     from .paddleocr_engine import PaddleOCREngine
 
     engine = PaddleOCREngine(use_gpu=use_gpu)
     if engine.is_available():
-        gpu_status = "GPU" if engine.use_gpu else "CPU"
-        print(f"✅ Using PaddleOCR ({gpu_status})")
+        if dashboard.verbosity == VerbosityLevel.VERBOSE:
+            gpu_status = "GPU" if engine.use_gpu else "CPU"
+            console.print(f"[{THEME['success']}]Using PaddleOCR ({gpu_status})[/]")
         return engine
 
-    print("⚠️  PaddleOCR not available, falling back to EasyOCR")
     from .easyocr_engine import EasyOCREngine
 
     engine = EasyOCREngine()
     if engine.is_available():
-        print("✅ Using EasyOCR (fallback)")
+        if dashboard.verbosity == VerbosityLevel.VERBOSE:
+            console.print(f"[{THEME['success']}]Using EasyOCR (fallback)[/]")
         return engine
 
-    print("❌ No OCR engine available")
     return None
 
 

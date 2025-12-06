@@ -4,26 +4,32 @@ Main entry point for computer use automation agent.
 
 import asyncio
 import sys
+
+from .crew import ComputerUseCrew
+from .utils.command_confirmation import CommandConfirmation
+from .utils.logging_config import setup_logging
+from .utils.permissions import check_and_request_permissions
 from .utils.platform_detector import detect_platform
 from .utils.safety_checker import SafetyChecker
-from .utils.command_confirmation import CommandConfirmation
-from .utils.permissions import check_and_request_permissions
-from .utils.logging_config import setup_logging
 from .utils.ui import (
+    VerbosityLevel,
+    console,
+    dashboard,
+    get_task_input,
     print_banner,
     print_platform_info,
     print_section_header,
+    print_status_overview,
     print_task_result,
-    get_task_input,
-    console,
+    THEME,
 )
-from .crew import ComputerUseCrew
 
 
 async def main(
     voice_input: bool = False,
     use_browser_profile: bool = False,
     browser_profile: str = "Default",
+    verbosity: VerbosityLevel = VerbosityLevel.NORMAL,
 ):
     """
     Main execution function.
@@ -32,16 +38,18 @@ async def main(
         voice_input: Start with voice input mode enabled
         use_browser_profile: Use existing Chrome profile for authentication
         browser_profile: Chrome profile name (Default, Profile 1, etc.)
+        verbosity: Output verbosity level (QUIET, NORMAL, VERBOSE)
     """
     import logging
-    import warnings
     import os
+    import warnings
+
+    dashboard.set_verbosity(verbosity)
 
     warnings.filterwarnings("ignore")
     os.environ["PPOCR_SHOW_LOG"] = "False"
 
     for logger_name in [
-        # "browser_use",
         "easyocr",
         "paddleocr",
         "werkzeug",
@@ -55,30 +63,30 @@ async def main(
     print_banner()
 
     if not check_and_request_permissions():
-        console.print("[yellow]Exiting due to missing permissions.[/yellow]")
+        console.print(f"[{THEME['warning']}]Exiting due to missing permissions.[/]")
         sys.exit(1)
 
-    print_section_header("Platform Detection", "🔍")
+    print_section_header("Platform Detection", "")
     capabilities = detect_platform()
     print_platform_info(capabilities)
 
-    print_section_header("Initializing Systems", "🚀")
+    print_section_header("Initializing", "")
 
+    from .config.llm_config import LLMConfig
     from .services.twilio_service import TwilioService
     from .services.webhook_server import WebhookServer
     from .utils.ui import print_twilio_config_status
-    from .config.llm_config import LLMConfig
 
     twilio_service = TwilioService()
     twilio_service.set_llm_client(LLMConfig.get_llm())
 
+    webhook_server = None
     if twilio_service.is_configured():
         print_twilio_config_status(True, twilio_service.get_phone_number())
         webhook_server = WebhookServer(twilio_service)
         webhook_server.start()
     else:
         print_twilio_config_status(False)
-        webhook_server = None
 
     crew = ComputerUseCrew(
         capabilities,
@@ -88,12 +96,17 @@ async def main(
         browser_profile_directory=browser_profile,
     )
 
-    console.print(
-        f"[green]✅ Loaded {len(crew.tool_registry.list_available_tools())} tools[/green]"
-    )
-    console.print("[green]✅ Crew initialized successfully[/green]")
+    system_status = {
+        "Tools": f"{len(crew.tool_registry.list_available_tools())} loaded",
+        "Webhook": f"Port {webhook_server.port}" if webhook_server else "Off",
+        "Browser": browser_profile if use_browser_profile else "Default",
+    }
+    print_status_overview("System", system_status)
 
-    print_section_header("Ready for Automation", "✨")
+    if verbosity == VerbosityLevel.NORMAL:
+        console.print()
+        console.print(f"  [{THEME['success']}]Ready[/]")
+        console.print()
 
     conversation_history = []
     esc_pressed = {"value": False}
@@ -108,7 +121,6 @@ async def main(
         except Exception:
             pass
 
-    # Start keyboard listener
     from pynput import keyboard
 
     listener = keyboard.Listener(on_press=on_key_press)
@@ -123,28 +135,33 @@ async def main(
                     continue
 
                 if task.lower() in ["quit", "exit", "q"]:
-                    console.print("\n[bold cyan]👋 Goodbye![/bold cyan]")
+                    console.print(f"\n[bold {THEME['primary']}]Goodbye[/]")
                     break
 
-                console.print(
-                    f"\n[bold yellow]⏳ Processing:[/bold yellow] [white]{task}[/white]"
-                )
-                console.print("[dim]Press ESC to stop the task at any time[/dim]\n")
+                dashboard.set_task(task)
 
-                # Reset ESC flag and crew cancellation
+                if verbosity != VerbosityLevel.QUIET:
+                    dashboard.start_dashboard()
+
                 esc_pressed["value"] = False
                 ComputerUseCrew.clear_cancellation()
 
-                # Create cancellable task
                 task_future = asyncio.create_task(
                     crew.execute_task(task, conversation_history)
                 )
 
-                # Monitor for ESC while task runs
                 while not task_future.done():
                     if esc_pressed["value"]:
-                        console.print(
-                            "\n[bold yellow]⚠️  ESC pressed - Stopping task...[/bold yellow]"
+                        dashboard.add_log_entry(
+                            (
+                                dashboard._action_log[-1].action_type
+                                if dashboard._action_log
+                                else __import__(
+                                    "computer_use.utils.ui", fromlist=["ActionType"]
+                                ).ActionType.ERROR
+                            ),
+                            "Cancelling task...",
+                            status="error",
                         )
                         ComputerUseCrew.request_cancellation()
                         task_future.cancel()
@@ -152,11 +169,10 @@ async def main(
                             await task_future
                         except asyncio.CancelledError:
                             pass
-                        console.print(
-                            "[yellow]✋ Task cancelled. Waiting for cleanup...[/yellow]\n"
-                        )
                         break
                     await asyncio.sleep(0.1)
+
+                dashboard.stop_dashboard()
 
                 if not task_future.cancelled():
                     result = await task_future
@@ -166,30 +182,49 @@ async def main(
                         conversation_history = conversation_history[-10:]
 
                     print_task_result(result)
+                else:
+                    console.print(f"\n[{THEME['warning']}]Task cancelled[/]\n")
 
             except KeyboardInterrupt:
-                console.print("\n\n[yellow]⚠️  Interrupted by user[/yellow]")
+                dashboard.stop_dashboard()
+                console.print(f"\n\n[{THEME['warning']}]Interrupted[/]")
                 break
             except asyncio.CancelledError:
-                console.print("[yellow]✋ Task cancelled.[/yellow]\n")
+                dashboard.stop_dashboard()
+                console.print(f"[{THEME['warning']}]Task cancelled[/]\n")
                 continue
             except Exception as e:
-                console.print(f"\n[red]❌ Error: {e}[/red]")
-                import traceback
+                dashboard.stop_dashboard()
+                console.print(f"\n[{THEME['error']}]Error: {e}[/]")
+                if verbosity == VerbosityLevel.VERBOSE:
+                    import traceback
 
-                traceback.print_exc()
+                    traceback.print_exc()
     finally:
         listener.stop()
+        dashboard.stop_dashboard()
 
 
 def cli():
-    """
-    CLI entry point with argument parsing.
-    """
+    """CLI entry point with argument parsing."""
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Computer Use Agent - Multi-platform automation"
+        description="Computer Use Agent - Multi-platform automation",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output with detailed logs",
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Minimal output, no dashboard",
     )
     parser.add_argument(
         "--voice-input",
@@ -210,16 +245,27 @@ def cli():
 
     args = parser.parse_args()
 
+    if args.verbose and args.quiet:
+        parser.error("Cannot use both --verbose and --quiet")
+
+    if args.verbose:
+        verbosity = VerbosityLevel.VERBOSE
+    elif args.quiet:
+        verbosity = VerbosityLevel.QUIET
+    else:
+        verbosity = VerbosityLevel.NORMAL
+
     try:
         asyncio.run(
             main(
                 voice_input=args.voice_input,
                 use_browser_profile=args.use_browser_profile,
                 browser_profile=args.browser_profile,
+                verbosity=verbosity,
             )
         )
     except KeyboardInterrupt:
-        console.print("\n\n[bold cyan]👋 Goodbye![/bold cyan]")
+        console.print(f"\n\n[bold {THEME['primary']}]Goodbye[/]")
 
 
 if __name__ == "__main__":
