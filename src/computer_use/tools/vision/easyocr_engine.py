@@ -41,7 +41,6 @@ class EasyOCREngine:
 
                 self.reader = easyocr.Reader(["en"], gpu=False, verbose=False)
         except ImportError:
-            print("EasyOCR not available. Install with: pip install easyocr")
             self.reader = None
 
     def is_available(self) -> bool:
@@ -82,8 +81,7 @@ class EasyOCREngine:
 
         try:
             results_raw = self.reader.readtext(img_array)
-        except Exception as e:
-            print(f"EasyOCR error: {e}")
+        except Exception:
             return []
 
         results = []

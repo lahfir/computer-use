@@ -12,15 +12,18 @@ from .utils.permissions import check_and_request_permissions
 from .utils.platform_detector import detect_platform
 from .utils.safety_checker import SafetyChecker
 from .utils.ui import (
+    ActionType,
     VerbosityLevel,
     console,
     dashboard,
     get_task_input,
     print_banner,
     print_platform_info,
-    print_section_header,
+    print_ready,
+    print_startup_step,
     print_status_overview,
     print_task_result,
+    startup_spinner,
     THEME,
 )
 
@@ -40,73 +43,59 @@ async def main(
         browser_profile: Chrome profile name (Default, Profile 1, etc.)
         verbosity: Output verbosity level (QUIET, NORMAL, VERBOSE)
     """
-    import logging
-    import os
-    import warnings
-
     dashboard.set_verbosity(verbosity)
-
-    warnings.filterwarnings("ignore")
-    os.environ["PPOCR_SHOW_LOG"] = "False"
-
-    for logger_name in [
-        "easyocr",
-        "paddleocr",
-        "werkzeug",
-        "flask",
-    ]:
-        logging.getLogger(logger_name).setLevel(logging.CRITICAL)
-        logging.getLogger(logger_name).propagate = False
-
-    setup_logging()
+    setup_logging(verbose=verbosity == VerbosityLevel.VERBOSE)
 
     print_banner()
 
-    if not check_and_request_permissions():
-        console.print(f"[{THEME['warning']}]Exiting due to missing permissions.[/]")
+    with startup_spinner("Checking permissions..."):
+        permissions_ok = check_and_request_permissions()
+
+    if not permissions_ok:
+        print_startup_step("Permissions denied", success=False)
+        console.print(f"  [{THEME['error']}]Cannot proceed without permissions[/]")
         sys.exit(1)
 
-    print_section_header("Platform Detection", "")
-    capabilities = detect_platform()
-    print_platform_info(capabilities)
+    print_startup_step("Permissions granted")
 
-    print_section_header("Initializing", "")
+    with startup_spinner("Detecting platform..."):
+        capabilities = detect_platform()
+
+    print_platform_info(capabilities)
 
     from .config.llm_config import LLMConfig
     from .services.twilio_service import TwilioService
     from .services.webhook_server import WebhookServer
-    from .utils.ui import print_twilio_config_status
 
-    twilio_service = TwilioService()
-    twilio_service.set_llm_client(LLMConfig.get_llm())
+    with startup_spinner("Initializing services..."):
+        twilio_service = TwilioService()
+        twilio_service.set_llm_client(LLMConfig.get_llm())
 
-    webhook_server = None
-    if twilio_service.is_configured():
-        print_twilio_config_status(True, twilio_service.get_phone_number())
-        webhook_server = WebhookServer(twilio_service)
-        webhook_server.start()
-    else:
-        print_twilio_config_status(False)
+        webhook_server = None
+        if twilio_service.is_configured():
+            webhook_server = WebhookServer(twilio_service)
+            webhook_server.start()
 
-    crew = ComputerUseCrew(
-        capabilities,
-        SafetyChecker(),
-        confirmation_manager=CommandConfirmation(),
-        use_browser_profile=use_browser_profile,
-        browser_profile_directory=browser_profile,
-    )
+    with startup_spinner("Loading tools..."):
+        crew = ComputerUseCrew(
+            capabilities,
+            SafetyChecker(),
+            confirmation_manager=CommandConfirmation(),
+            use_browser_profile=use_browser_profile,
+            browser_profile_directory=browser_profile,
+        )
+
+    tool_count = len(crew.tool_registry.list_available_tools())
+    print_startup_step(f"{tool_count} tools loaded")
 
     system_status = {
-        "Tools": f"{len(crew.tool_registry.list_available_tools())} loaded",
-        "Webhook": f"Port {webhook_server.port}" if webhook_server else "Off",
-        "Browser": browser_profile if use_browser_profile else "Default",
+        "Tools": str(tool_count),
+        "Webhook": f":{webhook_server.port}" if webhook_server else "off",
+        "Browser": browser_profile if use_browser_profile else "default",
     }
     print_status_overview("System", system_status)
 
-    if verbosity == VerbosityLevel.NORMAL:
-        console.print()
-        console.print(f"  [{THEME['success']}]Ready[/]")
-        console.print()
+    print_ready()
 
     conversation_history = []
     esc_pressed = {"value": False}
@@ -135,7 +124,7 @@ async def main(
                     continue
 
                 if task.lower() in ["quit", "exit", "q"]:
-                    console.print(f"\n[bold {THEME['primary']}]Goodbye[/]")
+                    console.print(f"\n  [{THEME['muted']}]Goodbye[/]")
                     break
 
                 dashboard.set_task(task)
@@ -153,13 +142,7 @@ async def main(
                 while not task_future.done():
                     if esc_pressed["value"]:
                         dashboard.add_log_entry(
-                            (
-                                dashboard._action_log[-1].action_type
-                                if dashboard._action_log
-                                else __import__(
-                                    "computer_use.utils.ui", fromlist=["ActionType"]
-                                ).ActionType.ERROR
-                            ),
+                            ActionType.ERROR,
                             "Cancelling task...",
                             status="error",
                         )
@@ -183,19 +166,19 @@ async def main(
 
                     print_task_result(result)
                 else:
-                    console.print(f"\n[{THEME['warning']}]Task cancelled[/]\n")
+                    console.print(f"\n  [{THEME['warning']}]Task cancelled[/]\n")
 
             except KeyboardInterrupt:
                 dashboard.stop_dashboard()
-                console.print(f"\n\n[{THEME['warning']}]Interrupted[/]")
+                console.print(f"\n\n  [{THEME['muted']}]Interrupted[/]")
                 break
             except asyncio.CancelledError:
                 dashboard.stop_dashboard()
-                console.print(f"[{THEME['warning']}]Task cancelled[/]\n")
+                console.print(f"  [{THEME['warning']}]Task cancelled[/]\n")
                 continue
             except Exception as e:
                 dashboard.stop_dashboard()
-                console.print(f"\n[{THEME['error']}]Error: {e}[/]")
+                console.print(f"\n  [{THEME['error']}]Error: {e}[/]")
                 if verbosity == VerbosityLevel.VERBOSE:
                     import traceback
 
@@ -265,7 +248,7 @@ def cli():
             )
         )
     except KeyboardInterrupt:
-        console.print(f"\n\n[bold {THEME['primary']}]Goodbye[/]")
+        console.print(f"\n\n  [{THEME['muted']}]Goodbye[/]")
 
 
 if __name__ == "__main__":

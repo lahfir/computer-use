@@ -41,9 +41,9 @@ class CodingAgentTool(BaseTool):
         Returns:
             String result for CrewAI
         """
-        from ..utils.ui import print_info
+        from ..utils.ui import dashboard, ActionType
 
-        print_info(f"🧑‍💻 CodingAgentTool executing: {task}")
+        dashboard.add_log_entry(ActionType.EXECUTE, f"CodingAgentTool: {task}")
 
         coding_agent = self._coding_agent
 
@@ -90,13 +90,19 @@ class CodingAgentTool(BaseTool):
                         output_parts.append(f"\n📝 OUTPUT:\n{result.data['output']}")
 
                 output_str = "".join(output_parts)
-                print_info(f"✅ Coding task completed: {result.action_taken}")
+                dashboard.add_log_entry(
+                    ActionType.COMPLETE,
+                    f"Coding completed: {result.action_taken}",
+                    status="complete",
+                )
                 return output_str
             else:
                 error_str = f"❌ FAILED: {result.action_taken}\n⚠️ Error: {result.error}"
-                print_info(f"❌ Coding task failed: {result.error}")
+                dashboard.add_log_entry(
+                    ActionType.ERROR, f"Coding failed: {result.error}", status="error"
+                )
                 raise Exception(error_str)
         except Exception as e:
-            error_msg = f"❌ ERROR: Coding automation exception - {str(e)}"
-            print_info(f"❌ {error_msg}")
-            raise Exception(error_msg)
+            error_msg = f"Coding automation exception: {str(e)}"
+            dashboard.add_log_entry(ActionType.ERROR, error_msg, status="error")
+            raise Exception(f"❌ ERROR: {error_msg}")

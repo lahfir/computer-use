@@ -131,7 +131,6 @@ class BrowserAgent:
             self.BrowserSession = BrowserSession
             return True
         except ImportError:
-            print("Browser-Use not available. Install with: pip install browser-use")
             return False
 
     async def execute_task(
@@ -170,92 +169,152 @@ class BrowserAgent:
             )
 
         try:
+            import logging
+
             from browser_use import Agent
             from browser_use.agent.views import AgentHistoryList
 
-            tool_context = build_full_context(
-                has_twilio=self.has_twilio, has_image_gen=self.has_image_gen
-            )
-            full_task = tool_context + "\n\n" + task
+            from ..utils.ui import dashboard, ActionType, VerbosityLevel
 
-            temp_dir = Path(tempfile.mkdtemp(prefix="browser_agent_"))
+            class DashboardLogHandler(logging.Handler):
+                """Routes browser-use logs to dashboard without printing to console."""
 
-            browser_session = self._create_browser_session()
+                def emit(self, record):
+                    msg = record.getMessage()
+                    if "Step" in msg and "📍" in msg:
+                        dashboard.add_log_entry(ActionType.NAVIGATE, f"Browser {msg}")
+                    elif "🎯" in msg:
+                        dashboard.set_action("Browser", target=msg)
+                    elif "▶️" in msg or "click" in msg.lower():
+                        dashboard.add_log_entry(ActionType.CLICK, msg)
+                    elif "Navigated" in msg or "🔗" in msg:
+                        dashboard.add_log_entry(ActionType.NAVIGATE, msg)
+                    elif "✅" in msg or "success" in msg.lower():
+                        dashboard.add_log_entry(
+                            ActionType.COMPLETE, msg, status="complete"
+                        )
+                    elif "Eval" in msg or "Memory" in msg:
+                        dashboard.add_log_entry(ActionType.ANALYZE, msg)
+                    elif "error" in msg.lower() or "❌" in msg:
+                        dashboard.add_log_entry(ActionType.ERROR, msg, status="error")
 
-            agent = Agent(
-                task=full_task,
-                llm=self.llm_client,
-                browser_session=browser_session,
-                tools=self.browser_tools,
-                max_failures=10,
-            )
+            dashboard_handler = DashboardLogHandler()
+            dashboard_handler.setLevel(logging.INFO)
 
-            result: AgentHistoryList = await agent.run(max_steps=200)
+            target_loggers = ["browser_use", "browser_use.agent", "tools", "Agent"]
+
+            for logger_name in target_loggers:
+                logger = logging.getLogger(logger_name)
+                logger.handlers = []
+                logger.addHandler(dashboard_handler)
+                logger.setLevel(logging.INFO)
+                logger.propagate = False
+
+                if dashboard.verbosity == VerbosityLevel.VERBOSE:
+                    console_handler = logging.StreamHandler()
+                    console_handler.setLevel(logging.INFO)
+                    logger.addHandler(console_handler)
 
             try:
-                await browser_session.kill()
-            except Exception:
-                pass
-
-            downloaded_files = []
-            file_details = []
-
-            download_dirs = glob.glob(
-                str(Path(tempfile.gettempdir()) / "browser-use-downloads-*")
-            )
-            for download_dir in download_dirs:
-                for file_path in Path(download_dir).rglob("*"):
-                    if file_path.is_file():
-                        downloaded_files.append(str(file_path.absolute()))
-                        file_details.append(
-                            FileDetail(
-                                path=str(file_path.absolute()),
-                                name=file_path.name,
-                                size=file_path.stat().st_size,
-                            )
-                        )
-
-            browser_output = BrowserOutput(
-                text=result.final_result() or "Task completed",
-                files=downloaded_files,
-                file_details=file_details,
-                work_directory=str(temp_dir),
-            )
-
-            is_successful = result.is_successful()
-            has_errors = bool(result.errors())
-
-            if result.is_done():
-                success = is_successful if is_successful is not None else not has_errors
-                error_msg = (
-                    "; ".join(str(e) for e in result.errors() if e)
-                    if has_errors
-                    else None
+                tool_context = build_full_context(
+                    has_twilio=self.has_twilio, has_image_gen=self.has_image_gen
                 )
+                full_task = tool_context + "\n\n" + task
+
+                temp_dir = Path(tempfile.mkdtemp(prefix="browser_agent_"))
+
+                browser_session = self._create_browser_session()
+                dashboard.set_browser_session(
+                    active=True,
+                    profile=self.browser_profile if self.use_profile else None,
+                )
+
+                agent = Agent(
+                    task=full_task,
+                    llm=self.llm_client,
+                    browser_session=browser_session,
+                    tools=self.browser_tools,
+                    max_failures=10,
+                )
+
+                result: AgentHistoryList = await agent.run(max_steps=200)
+
+                try:
+                    await browser_session.kill()
+                except Exception:
+                    pass
+                finally:
+                    dashboard.set_browser_session(active=False)
+
+                downloaded_files = []
+                file_details = []
+
+                download_dirs = glob.glob(
+                    str(Path(tempfile.gettempdir()) / "browser-use-downloads-*")
+                )
+                for download_dir in download_dirs:
+                    for file_path in Path(download_dir).rglob("*"):
+                        if file_path.is_file():
+                            downloaded_files.append(str(file_path.absolute()))
+                            file_details.append(
+                                FileDetail(
+                                    path=str(file_path.absolute()),
+                                    name=file_path.name,
+                                    size=file_path.stat().st_size,
+                                )
+                            )
+
+                browser_output = BrowserOutput(
+                    text=result.final_result() or "Task completed",
+                    files=downloaded_files,
+                    file_details=file_details,
+                    work_directory=str(temp_dir),
+                )
+
+                is_successful = result.is_successful()
+                has_errors = bool(result.errors())
+
+                if result.is_done():
+                    success = (
+                        is_successful if is_successful is not None else not has_errors
+                    )
+                    error_msg = (
+                        "; ".join(str(e) for e in result.errors() if e)
+                        if has_errors
+                        else None
+                    )
+
+                    return ActionResult(
+                        success=success,
+                        action_taken=f"Browser task: {task}",
+                        method_used="browser",
+                        confidence=1.0 if success else 0.0,
+                        error=error_msg,
+                        data=browser_output.model_dump(),
+                    )
 
                 return ActionResult(
-                    success=success,
+                    success=not has_errors,
                     action_taken=f"Browser task: {task}",
                     method_used="browser",
-                    confidence=1.0 if success else 0.0,
-                    error=error_msg,
+                    confidence=0.5,
+                    error=(
+                        "Agent reached max steps without completing"
+                        if has_errors
+                        else None
+                    ),
                     data=browser_output.model_dump(),
                 )
-
-            return ActionResult(
-                success=not has_errors,
-                action_taken=f"Browser task: {task}",
-                method_used="browser",
-                confidence=0.5,
-                error=(
-                    "Agent reached max steps without completing" if has_errors else None
-                ),
-                data=browser_output.model_dump(),
-            )
+            finally:
+                for logger_name in target_loggers:
+                    logger = logging.getLogger(logger_name)
+                    logger.handlers = []
 
         except Exception as e:
             error_msg = str(e)
-            print(f"[BrowserAgent] Exception during browser task: {error_msg}")
+            dashboard.add_log_entry(
+                ActionType.ERROR, f"Browser exception: {error_msg[:80]}", status="error"
+            )
 
             if "Event loop is closed" in error_msg:
                 error_msg = (

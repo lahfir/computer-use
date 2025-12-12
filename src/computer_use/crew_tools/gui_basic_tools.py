@@ -655,7 +655,7 @@ class GetAccessibleElementsTool(BaseTool):
             )
 
         try:
-            dashboard.set_action("Scanning", f"{app_name} UI", progress=30)
+            dashboard.set_action("Scanning", f"{app_name} UI")
             elements = []
             with action_spinner("Scanning", f"{app_name} UI"):
                 if hasattr(accessibility_tool, "invalidate_cache"):

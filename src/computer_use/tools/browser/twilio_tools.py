@@ -141,31 +141,29 @@ def _create_twilio_tools(twilio_service) -> Tools:
         Returns:
             ActionResult indicating the request was made
         """
-        message = f"""
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                          🤝 HUMAN ASSISTANCE NEEDED                          ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+        from computer_use.utils.ui import (
+            prompt_human_assistance,
+            HumanAssistanceResult,
+        )
 
-Reason: {reason}
+        result = prompt_human_assistance(reason, instructions)
 
-Instructions:
-{instructions}
-
-The browser will remain open. Please complete the manual task, then press Enter
-to allow the agent to continue.
-
-Press [Enter] when ready to continue...
-"""
-        print(message)
-
-        # Wait for user to press Enter
-        try:
-            input()
+        if result == HumanAssistanceResult.PROCEED:
             return ActionResult(
                 extracted_content="Human assistance completed. Continuing with the task...",
                 long_term_memory=f"Human helped with: {reason}",
             )
-        except (KeyboardInterrupt, EOFError):
+        elif result == HumanAssistanceResult.RETRY:
+            return ActionResult(
+                extracted_content="Human requested retry. Attempting the action again...",
+                long_term_memory=f"Retrying after human help: {reason}",
+            )
+        elif result == HumanAssistanceResult.SKIP:
+            return ActionResult(
+                extracted_content="Human chose to skip this step. Moving to next action...",
+                long_term_memory=f"Skipped: {reason}",
+            )
+        else:
             return ActionResult(
                 extracted_content="User cancelled the task.",
                 error="Task cancelled by user",

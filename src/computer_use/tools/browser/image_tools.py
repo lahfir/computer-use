@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from browser_use import Tools, ActionResult
+from ...utils.ui import dashboard, ActionType
 
 
 def load_image_tools() -> Optional[Tools]:
@@ -76,7 +77,11 @@ def _create_image_tools(api_key: str) -> Tools:
                 if part.inline_data is not None:
                     image = part.as_image()
                     image.save(str(output_path))
-
+                    dashboard.add_log_entry(
+                        ActionType.COMPLETE,
+                        f"Image generated: {output_path}",
+                        status="complete",
+                    )
                     return ActionResult(
                         extracted_content=f"Image generated successfully and saved to: {output_path}",
                         long_term_memory=f"Generated image at: {output_path}",

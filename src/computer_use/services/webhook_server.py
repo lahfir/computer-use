@@ -7,7 +7,6 @@ import os
 import threading
 from typing import Optional
 from flask import Flask, request
-from ..utils.ui import print_webhook_status
 
 
 class WebhookServer:
@@ -43,19 +42,20 @@ class WebhookServer:
             Twilio sends POST request with form data.
             """
             try:
+                from ..utils.ui import dashboard
+
                 from_number = request.form.get("From", "")
                 to_number = request.form.get("To", "")
                 body = request.form.get("Body", "")
 
-                print("\n📞 Webhook received SMS:")
-                print(f"   From: {from_number}")
-                print(f"   To: {to_number}")
-                print(f"   Body: {body}\n")
+                dashboard.add_webhook_event(
+                    "SMS",
+                    from_number[-4:] if from_number else "Unknown",
+                    body[:40] if body else "Empty message",
+                )
 
                 if body:
                     self.twilio_service.store_message(from_number, to_number, body)
-                else:
-                    print("⚠️  Empty message body, not storing")
 
                 return (
                     '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
@@ -63,7 +63,9 @@ class WebhookServer:
                 )
 
             except Exception as e:
-                print(f"❌ Webhook error: {str(e)}")
+                from ..utils.ui import dashboard
+
+                dashboard.add_webhook_event("ERROR", "Webhook", str(e)[:40])
                 return f"Error: {str(e)}", 500
 
         @self.app.route("/health", methods=["GET"])
@@ -87,14 +89,17 @@ class WebhookServer:
             """
             Run Flask server with minimal logging.
             """
-            import logging
             import socket
 
-            log = logging.getLogger("werkzeug")
-            log.setLevel(logging.CRITICAL)
-            logging.getLogger("flask").setLevel(logging.CRITICAL)
+            from computer_use.utils.logging_config import silence_flask_logs
 
-            original_port = self.port
+            silence_flask_logs()
+
+            import click
+
+            click.echo = lambda *args, **kwargs: None
+            click.secho = lambda *args, **kwargs: None
+
             max_attempts = 10
 
             for attempt in range(max_attempts):
@@ -112,11 +117,8 @@ class WebhookServer:
 
                 except OSError:
                     if attempt < max_attempts - 1:
-                        print_webhook_status(self.port + 1, "port_changed")
                         self.port += 1
                     else:
-                        print_webhook_status(self.port, "failed")
-                        print(f"   Tried ports {original_port} to {self.port}")
                         self.is_running = False
                         raise
 
@@ -125,14 +127,7 @@ class WebhookServer:
 
         import time
 
-        time.sleep(0.5)
-
-        if self.is_running:
-            from ..utils.ui import console
-
-            console.print()
-            print_webhook_status(self.port, "ready")
-            console.print()
+        time.sleep(0.3)
 
     def stop(self):
         """

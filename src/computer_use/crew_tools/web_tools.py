@@ -75,9 +75,11 @@ class WebAutomationTool(BaseTool):
         Returns:
             String result for CrewAI
         """
-        from ..utils.ui import print_info
+        from ..utils.ui import dashboard, ActionType
 
-        print_info(f"🌐 WebAutomationTool executing: {task}")
+        dashboard.add_log_entry(
+            ActionType.NAVIGATE, f"WebAutomationTool executing: {task}"
+        )
 
         browser_agent = self._browser_agent
 
@@ -89,8 +91,8 @@ class WebAutomationTool(BaseTool):
             running_loop = asyncio.get_running_loop()
             # We're in an async context, but CrewAI called us synchronously
             # This shouldn't happen, but if it does, we need to handle it
-            print_info(
-                "⚠️ Warning: Running in async context, using nest_asyncio workaround"
+            dashboard.add_log_entry(
+                ActionType.NAVIGATE, "Async context detected, using nest_asyncio"
             )
             import nest_asyncio
 
@@ -140,8 +142,8 @@ class WebAutomationTool(BaseTool):
 
                         # Shutdown default executor
                         loop.run_until_complete(loop.shutdown_default_executor())
-                    except Exception as cleanup_error:
-                        print_info(f"⚠️ Event loop cleanup warning: {cleanup_error}")
+                    except Exception:
+                        pass
                     finally:
                         loop.close()
 
@@ -176,11 +178,16 @@ class WebAutomationTool(BaseTool):
                         )
 
                 output_str = "".join(output_parts)
-                print_info(f"✅ Browser automation completed: {result.action_taken}")
+                dashboard.add_log_entry(
+                    ActionType.COMPLETE,
+                    f"Browser automation completed: {result.action_taken}",
+                    status="complete",
+                )
                 return output_str
             elif has_data:
-                print_info(
-                    f"⚠️ Browser automation partially completed: {result.action_taken}"
+                dashboard.add_log_entry(
+                    ActionType.NAVIGATE,
+                    f"Browser automation partial: {result.action_taken}",
                 )
                 output_parts = [
                     f"⚠️ PARTIAL SUCCESS: {result.action_taken}",
@@ -205,9 +212,11 @@ class WebAutomationTool(BaseTool):
                 return "".join(output_parts)
             else:
                 error_str = f"❌ FAILED: {result.action_taken}\n⚠️ Error: {result.error}"
-                print_info(f"❌ Browser automation failed: {result.error}")
+                dashboard.add_log_entry(
+                    ActionType.ERROR, f"Browser failed: {result.error}", status="error"
+                )
                 raise Exception(error_str)
         except Exception as e:
-            error_msg = f"❌ ERROR: Browser automation exception - {str(e)}"
-            print_info(f"❌ {error_msg}")
-            raise Exception(error_msg)
+            error_msg = f"Browser automation exception - {str(e)}"
+            dashboard.add_log_entry(ActionType.ERROR, error_msg, status="error")
+            raise Exception(f"❌ ERROR: {error_msg}")

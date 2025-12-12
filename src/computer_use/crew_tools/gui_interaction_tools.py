@@ -104,7 +104,7 @@ class ClickElementTool(BaseTool):
             return cancelled
 
         target = target or "element"
-        dashboard.set_action("Clicking", target, progress=20)
+        dashboard.set_action("Clicking", target)
 
         accessibility_tool = self._tool_registry.get_tool("accessibility")
 
@@ -333,7 +333,7 @@ class TypeTextTool(BaseTool):
             )
 
         display_text = text[:20] + "..." if len(text) > 20 else text
-        dashboard.set_action("Typing", display_text, progress=50)
+        dashboard.set_action("Typing", display_text)
 
         input_tool = self._tool_registry.get_tool("input")
 

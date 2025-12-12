@@ -12,7 +12,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any
 from ..schemas.actions import ActionResult
-from ..utils.ui import print_info, print_success, print_failure, console
+from ..utils.ui import dashboard, ActionType
 
 
 CODE_DIR_NAME = "code"
@@ -81,7 +81,7 @@ class CodingAgent:
     def _ensure_code_directory(self) -> None:
         """Create the code directory and venv if they don't exist."""
         self.code_root.mkdir(parents=True, exist_ok=True)
-        console.print(f"  [dim]📁 Code directory: {self.code_root}[/dim]")
+        dashboard.add_log_entry(ActionType.OPEN, f"Code directory: {self.code_root}")
 
     def _generate_project_name(self, task: str) -> str:
         """
@@ -141,9 +141,9 @@ class CodingAgent:
 
         project_path = self._get_project_path(task)
 
-        print_info(f"🧑‍💻 Starting Cline for task: {task[:80]}...")
-        print_info(f"📁 Project folder: {project_path}")
-        print_info(f"🐍 Shared venv: {self.venv_path}")
+        dashboard.add_log_entry(ActionType.EXECUTE, f"Starting Cline: {task[:80]}")
+        dashboard.add_log_entry(ActionType.OPEN, f"Project: {project_path}")
+        dashboard.set_action("Cline", target=str(project_path))
 
         enhanced_task = self._build_task_with_guidelines(task, project_path, context)
 
@@ -151,7 +151,12 @@ class CodingAgent:
             result = self._run_cline_task(enhanced_task, project_path)
 
             if result["success"]:
-                print_success("✅ Cline completed coding task")
+                dashboard.add_log_entry(
+                    ActionType.COMPLETE,
+                    "Cline completed coding task",
+                    status="complete",
+                )
+                dashboard.clear_action()
                 return ActionResult(
                     success=True,
                     action_taken=f"Completed: {task[:50]}...",
@@ -165,7 +170,11 @@ class CodingAgent:
                     },
                 )
             else:
-                print_failure(f"❌ Cline failed: {result.get('error')}")
+                dashboard.add_log_entry(
+                    ActionType.ERROR,
+                    f"Cline failed: {result.get('error')}",
+                    status="error",
+                )
                 return ActionResult(
                     success=False,
                     action_taken=f"Failed: {task[:50]}...",
@@ -179,7 +188,9 @@ class CodingAgent:
                 )
 
         except Exception as e:
-            print_failure(f"❌ Coding agent error: {str(e)}")
+            dashboard.add_log_entry(
+                ActionType.ERROR, f"Coding agent error: {str(e)}", status="error"
+            )
             return ActionResult(
                 success=False,
                 action_taken="Coding task exception",
@@ -241,9 +252,8 @@ class CodingAgent:
             Dictionary with success, output, and error
         """
         task_preview = task.split("ACTUAL TASK:")[-1].strip()[:150]
-        console.print(f"  [dim]Task: {task_preview}...[/dim]")
-        console.print(f"  [dim]Working in: {project_path}[/dim]")
-        console.print("[cyan]─" * 60 + "[/cyan]")
+        dashboard.add_log_entry(ActionType.PLAN, f"Task: {task_preview}")
+        dashboard.set_action("Cline", target=str(project_path))
 
         output_lines = []
 
@@ -261,11 +271,11 @@ class CodingAgent:
                 if line:
                     clean_line = line.rstrip()
                     output_lines.append(clean_line)
-                    console.print(f"  [dim]{clean_line}[/dim]")
+                    if clean_line.strip():
+                        dashboard.add_log_entry(ActionType.EXECUTE, clean_line[:100])
 
             process.wait(timeout=1800)
-
-            console.print("[cyan]─" * 60 + "[/cyan]")
+            dashboard.set_action("Cline", target="Processing")
 
             output = "\n".join(output_lines)
 

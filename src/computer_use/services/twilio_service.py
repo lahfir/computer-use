@@ -9,6 +9,8 @@ import time
 from typing import Optional, Any
 from pydantic import BaseModel, Field
 
+from ..utils.ui import dashboard, ActionType
+
 
 class VerificationCode(BaseModel):
     """
@@ -124,9 +126,7 @@ class TwilioService:
         with self.messages_lock:
             self.messages.append(message)
             self._cleanup_old_messages()
-            print(
-                f"📨 SMS stored: {body[:50]}... (Total messages: {len(self.messages)})"
-            )
+            dashboard.add_log_entry(ActionType.NAVIGATE, f"SMS stored: {body[:50]}...")
 
     def _cleanup_old_messages(self):
         """
@@ -175,7 +175,11 @@ class TwilioService:
             VerificationCode with extracted code and confidence, or None if extraction fails
         """
         if not self.llm_client:
-            print("⚠️  LLM client not set, cannot extract verification code")
+            dashboard.add_log_entry(
+                ActionType.ERROR,
+                "LLM client not set for verification code",
+                status="error",
+            )
             return None
 
         try:
@@ -188,22 +192,26 @@ Return ONLY the verification code itself, nothing else.
 If you cannot find a verification code, return "NONE".
 """
 
-            print("🤖 Extracting code using LLM...")
+            dashboard.add_log_entry(ActionType.ANALYZE, "Extracting code using LLM")
             structured_llm = self.llm_client.with_structured_output(VerificationCode)
             result: VerificationCode = await structured_llm.ainvoke(prompt)
 
             if result and result.code and result.code != "NONE":
-                print(
-                    f"✅ LLM extracted: {result.code} (confidence: {result.confidence})"
+                dashboard.add_log_entry(
+                    ActionType.COMPLETE, f"Extracted: {result.code}", status="complete"
                 )
                 return result
             else:
-                print(f"❌ LLM could not extract code (result: {result})")
+                dashboard.add_log_entry(
+                    ActionType.ERROR, "Could not extract code", status="error"
+                )
 
             return None
 
         except Exception as e:
-            print(f"❌ LLM extraction error: {str(e)}")
+            dashboard.add_log_entry(
+                ActionType.ERROR, f"LLM extraction error: {e}", status="error"
+            )
             return None
 
     async def get_verification_code(
@@ -223,8 +231,8 @@ If you cannot find a verification code, return "NONE".
         start_time = time.time()
         poll_count = 0
 
-        print(
-            f"🔍 Polling for verification code (timeout: {timeout}s, interval: {poll_interval}s)..."
+        dashboard.add_log_entry(
+            ActionType.NAVIGATE, f"Polling for verification code (timeout: {timeout}s)"
         )
 
         while time.time() - start_time < timeout:
@@ -232,32 +240,31 @@ If you cannot find a verification code, return "NONE".
             latest_message = self.get_latest_message(max_age_seconds=timeout)
 
             if latest_message:
-                print(
-                    f"📬 Found message (poll #{poll_count}): {latest_message.body[:50]}..."
+                dashboard.add_log_entry(
+                    ActionType.NAVIGATE, f"Found message: {latest_message.body[:40]}..."
                 )
                 code_result = await self.extract_verification_code(latest_message.body)
 
                 if code_result:
-                    print(
-                        f"🔑 Extracted code: {code_result.code} (confidence: {code_result.confidence:.2f})"
+                    dashboard.add_log_entry(
+                        ActionType.COMPLETE,
+                        f"Code: {code_result.code} ({code_result.confidence:.0%})",
+                        status="complete",
                     )
                     if code_result.confidence > 0.5:
                         return code_result.code
-                    else:
-                        print(
-                            f"⚠️  Code confidence too low ({code_result.confidence:.2f}), continuing to poll..."
-                        )
                 else:
-                    print("❌ Failed to extract code from message")
-            else:
-                if poll_count % 10 == 0:  # Log every 10 polls to avoid spam
-                    print(
-                        f"⏳ No message yet (poll #{poll_count}, elapsed: {time.time() - start_time:.1f}s)"
+                    dashboard.add_log_entry(
+                        ActionType.ERROR, "Failed to extract code", status="error"
                     )
 
             await self._async_sleep(poll_interval)
 
-        print(f"⏱️  Timeout reached after {poll_count} polls, no valid code found")
+        dashboard.add_log_entry(
+            ActionType.ERROR,
+            f"Timeout after {poll_count} polls, no code found",
+            status="error",
+        )
         return None
 
     async def _async_sleep(self, seconds: float):

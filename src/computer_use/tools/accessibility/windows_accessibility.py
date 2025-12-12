@@ -13,7 +13,7 @@ import platform
 import time
 import uuid
 
-from ...utils.ui import print_success, print_warning, print_info
+from ...utils.ui import print_warning, print_info
 
 
 class WindowsAccessibility:
@@ -65,7 +65,9 @@ class WindowsAccessibility:
             self.pywinauto = pywinauto
             self.Desktop = Desktop
             Desktop(backend="uia").windows()
-            print_success("Accessibility API ready")
+            from ...utils.ui import print_verbose_only
+
+            print_verbose_only("✓ Accessibility API ready")
         except Exception as e:
             print_warning(f"UI Automation not available: {e}")
             print_info("May need to run with administrator privileges")

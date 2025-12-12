@@ -45,17 +45,17 @@ class ExecuteShellCommandTool(BaseTool):
         Returns:
             String result for CrewAI
         """
-        from ..utils.ui import print_info
+        from ..utils.ui import dashboard, ActionType
 
-        print_info(f"⚙️ Executing command: {command}")
+        dashboard.add_log_entry(ActionType.EXECUTE, f"Executing: {command}")
 
         # Safety check
         safety_checker = self._safety_checker
         if safety_checker:
             if safety_checker.is_destructive(command):
-                error_msg = f"ERROR: Command is potentially destructive and was blocked - {command}"
-                print_info(f"❌ {error_msg}")
-                return error_msg
+                error_msg = f"Destructive command blocked: {command}"
+                dashboard.add_log_entry(ActionType.ERROR, error_msg, status="error")
+                return f"ERROR: {error_msg}"
 
         # Confirmation check
         confirmation_manager = self._confirmation_manager
@@ -64,9 +64,9 @@ class ExecuteShellCommandTool(BaseTool):
             if requires_confirmation:
                 approved, reason = confirmation_manager.request_confirmation(command)
                 if not approved:
-                    error_msg = f"ERROR: User {reason} command - {command}"
-                    print_info(f"❌ {error_msg}")
-                    return error_msg
+                    error_msg = f"User {reason} command: {command}"
+                    dashboard.add_log_entry(ActionType.ERROR, error_msg, status="error")
+                    return f"ERROR: {error_msg}"
 
         # Execute command
         try:
@@ -85,20 +85,24 @@ class ExecuteShellCommandTool(BaseTool):
                 )
                 if result.stdout:
                     output_str += f"Output: {result.stdout.strip()}\n"
-                print_info("✅ Command succeeded")
+                dashboard.add_log_entry(
+                    ActionType.COMPLETE, "Command succeeded", status="complete"
+                )
                 return output_str
             else:
                 error_str = f"FAILED: Command failed with exit code {result.returncode}\nCommand: {command}\n"
                 if result.stderr:
                     error_str += f"Error: {result.stderr.strip()}\n"
-                print_info(f"❌ Command failed: {result.stderr}")
+                dashboard.add_log_entry(
+                    ActionType.ERROR, f"Command failed: {result.stderr}", status="error"
+                )
                 return error_str
 
         except subprocess.TimeoutExpired:
-            error_msg = f"ERROR: Command timed out after 30s - {command}"
-            print_info(f"❌ {error_msg}")
-            return error_msg
+            error_msg = f"Command timed out after 30s: {command}"
+            dashboard.add_log_entry(ActionType.ERROR, error_msg, status="error")
+            return f"ERROR: {error_msg}"
         except Exception as e:
-            error_msg = f"ERROR: Exception executing command - {str(e)}"
-            print_info(f"❌ {error_msg}")
-            return error_msg
+            error_msg = f"Exception executing command: {str(e)}"
+            dashboard.add_log_entry(ActionType.ERROR, error_msg, status="error")
+            return f"ERROR: {error_msg}"

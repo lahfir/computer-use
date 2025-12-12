@@ -66,7 +66,6 @@ For example: 450,300
             if validator:
                 is_valid, error = validator.validate_coordinates(x, y, strict=False)
                 if not is_valid:
-                    print(f"Coordinate validation failed: {error}")
                     return None
 
             bounds = (x - 20, y - 20, 40, 40)
@@ -81,8 +80,7 @@ For example: 450,300
                 "detection_method": "vision",
             }
 
-        except Exception as e:
-            print(f"Vision coordinate extraction failed: {e}")
+        except Exception:
             return None
 
     def _image_to_base64(self, image: Image.Image) -> str:

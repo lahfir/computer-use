@@ -226,15 +226,37 @@ class ComputerUseCrew:
 
         backstory_with_context = config["backstory"] + self.platform_context
 
+        def step_callback(step_output):
+            """Callback for agent steps to update dashboard."""
+            if isinstance(step_output, list):
+                for step in step_output:
+                    if hasattr(step, "tool") and hasattr(step, "tool_input"):
+                        tool_name = step.tool
+                        tool_input = str(step.tool_input)
+                        dashboard.add_log_entry(
+                            ActionType.EXECUTE,
+                            f"{tool_name}: {tool_input}",
+                        )
+                        dashboard.set_action(tool_name, tool_input)
+            elif hasattr(step_output, "tool") and hasattr(step_output, "tool_input"):
+                tool_name = step_output.tool
+                tool_input = str(step_output.tool_input)
+                dashboard.add_log_entry(
+                    ActionType.EXECUTE,
+                    f"{tool_name}: {tool_input}",
+                )
+                dashboard.set_action(tool_name, tool_input)
+
         agent_params = {
             "role": config["role"],
             "goal": config["goal"],
             "backstory": backstory_with_context,
-            "verbose": config.get("verbose", True),
+            "verbose": False,
             "llm": llm,
             "max_iter": config.get("max_iter", 15),
             "allow_delegation": config.get("allow_delegation", False),
             "memory": True,
+            "step_callback": step_callback,
         }
 
         if not is_manager:
@@ -320,7 +342,7 @@ class ComputerUseCrew:
         """Display the task plan and update dashboard."""
         dashboard.add_log_entry(
             ActionType.PLAN,
-            f"Analyzed: {plan.reasoning[:50]}...",
+            f"Analyzed: {plan.reasoning}",
             status="complete",
         )
         dashboard.set_steps(0, len(plan.subtasks))
@@ -329,9 +351,7 @@ class ComputerUseCrew:
             print_info(f"Analysis: {plan.reasoning}")
             print_info(f"Plan: {len(plan.subtasks)} subtask(s)")
             for i, subtask in enumerate(plan.subtasks, 1):
-                print_info(
-                    f"  {i}. {subtask.agent_type}: {subtask.description[:60]}..."
-                )
+                print_info(f"  {i}. {subtask.agent_type}: {subtask.description}")
 
     def _build_tasks_from_plan(
         self, plan: TaskPlan, context_str: str, agents_dict: Dict[str, Agent]

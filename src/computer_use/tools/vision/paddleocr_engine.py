@@ -64,12 +64,8 @@ class PaddleOCREngine:
                     lang="en",
                 )
         except ImportError:
-            print(
-                "PaddleOCR not available. Install with: pip install paddleocr paddlepaddle"
-            )
             self.ocr = None
-        except Exception as e:
-            print(f"Failed to initialize PaddleOCR: {e}")
+        except Exception:
             self.ocr = None
 
     def is_available(self) -> bool:

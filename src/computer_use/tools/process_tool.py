@@ -92,8 +92,7 @@ class ProcessTool:
                 subprocess.Popen([app_name.lower()])
 
             return True
-        except Exception as e:
-            print(f"Failed to launch {app_name}: {e}")
+        except Exception:
             return False
 
     def focus_app(self, app_name: str) -> bool:
@@ -133,8 +132,7 @@ class ProcessTool:
                     )
 
             return True
-        except Exception as e:
-            print(f"Failed to focus {app_name}: {e}")
+        except Exception:
             return False
 
     def open_application(self, app_name: str) -> Dict[str, any]:

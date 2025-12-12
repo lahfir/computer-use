@@ -8,8 +8,6 @@ All live status functionality is now part of the main DashboardManager in ui.py.
 from .ui import (
     ActionType,
     DashboardManager,
-    ShimmerText,
-    AnimatedProgress,
     dashboard,
     console,
     THEME,
@@ -30,7 +28,7 @@ class LiveStatus(DashboardManager):
 class ActionProgress:
     """
     Track and display multi-step action progress.
-    Simplified wrapper around AnimatedProgress.
+    Simplified wrapper around dashboard.
     """
 
     def __init__(self, total_steps: int, title: str = "Progress"):
@@ -46,7 +44,7 @@ class ActionProgress:
         self.title = title
 
     def __enter__(self):
-        dashboard.set_action(self.title, f"0/{self.total}", progress=0)
+        dashboard.set_action(self.title, f"0/{self.total}")
         return self
 
     def __exit__(self, *args):
@@ -60,10 +58,7 @@ class ActionProgress:
             step_name: Optional name of completed step
         """
         self.current += 1
-        progress = int((self.current / self.total) * 100)
-        dashboard.set_action(
-            self.title, f"{self.current}/{self.total}", progress=progress
-        )
+        dashboard.set_action(self.title, f"{self.current}/{self.total}")
 
 
 def format_element_info(element_type: str, label: str, location: tuple = None) -> str:
@@ -93,8 +88,6 @@ __all__ = [
     "ActionType",
     "DashboardManager",
     "LiveStatus",
-    "ShimmerText",
-    "AnimatedProgress",
     "ActionProgress",
     "dashboard",
     "live_status",

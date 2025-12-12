@@ -1,4 +1,4 @@
-Login to google and set a google ad campaign for https://nuxiba.com/ Research about the company and the product and set a google ad campaign for the product. Use images for the campaign.
+Login to google and set a google ad campaign for https://nuxiba.com/ Research about the company and the product and set a google ad campaign for the product. Use images for the campaign. All in a single browser agent and task.
 
 Credentials:
 Email: dream4billions@gmail.com

@@ -36,9 +36,6 @@ class MacOSVisionOCR:
             self.NSURL = NSURL
             self.vision_available = True
         except ImportError:
-            print(
-                "Vision framework not available. Install with: pip install pyobjc-framework-Vision"
-            )
             self.vision_available = False
 
     def is_available(self) -> bool:
