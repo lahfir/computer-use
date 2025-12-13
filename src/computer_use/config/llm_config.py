@@ -134,10 +134,14 @@ class LLMConfig:
                 raise ValueError(
                     "GOOGLE_API_KEY or GEMINI_API_KEY not found. Please set it in your .env file."
                 )
-            # Ensure the key is in the environment for LangChain
-            os.environ["GOOGLE_API_KEY"] = api_key
-            os.environ["GEMINI_API_KEY"] = api_key
-            return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key)
+            gemini_key_backup = os.environ.pop("GEMINI_API_KEY", None)
+            if not os.getenv("GOOGLE_API_KEY"):
+                os.environ["GOOGLE_API_KEY"] = api_key
+            try:
+                return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key)
+            finally:
+                if gemini_key_backup:
+                    os.environ["GEMINI_API_KEY"] = gemini_key_backup
         else:
             # Fallback to OpenAI
             api_key = os.getenv("OPENAI_API_KEY")

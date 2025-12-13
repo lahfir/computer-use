@@ -45,6 +45,18 @@ class NullHandler(logging.Handler):
         pass
 
 
+class GoogleApiKeyFilter(logging.Filter):
+    """Filter to suppress Google API key duplicate warnings."""
+
+    def filter(self, record):
+        message = record.getMessage()
+        if "Both GOOGLE_API_KEY and GEMINI_API_KEY" in message:
+            return False
+        if "Using GOOGLE_API_KEY" in message:
+            return False
+        return True
+
+
 def setup_logging(verbose: bool = False) -> None:
     """
     Configure logging levels to suppress verbose output from third-party libraries.
@@ -54,17 +66,34 @@ def setup_logging(verbose: bool = False) -> None:
         verbose: If True, allow browser-use logs to print. If False, silence them.
     """
     warnings.filterwarnings("ignore")
+    # Suppress Google API key duplicate warnings specifically
+    warnings.filterwarnings(
+        "ignore",
+        message=".*Both GOOGLE_API_KEY and GEMINI_API_KEY.*",
+        category=UserWarning,
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=".*Using GOOGLE_API_KEY.*",
+        category=UserWarning,
+    )
 
     os.environ["GRPC_VERBOSITY"] = "ERROR"
     os.environ["GLOG_minloglevel"] = "2"
     os.environ["PPOCR_SHOW_LOG"] = "False"
     os.environ["BROWSER_USE_LOGGING_LEVEL"] = "CRITICAL" if not verbose else "INFO"
 
+    api_key_filter = GoogleApiKeyFilter()
+
     for logger_name in NOISY_LIBRARIES:
         logger = logging.getLogger(logger_name)
         logger.setLevel(logging.CRITICAL)
         logger.propagate = False
         logger.handlers = [NullHandler()]
+        logger.addFilter(api_key_filter)
+
+    root_logger = logging.getLogger()
+    root_logger.addFilter(api_key_filter)
 
     browser_level = logging.INFO if verbose else logging.CRITICAL
 

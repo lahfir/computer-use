@@ -188,10 +188,17 @@ class ComputerUseCrew:
             "execute_shell_command": self.execute_command_tool,
         }
 
-    def _create_step_callback(self):
-        """Create a callback for agent step logging."""
+    def _create_step_callback(self, agent_role: str):
+        """
+        Create a callback for agent step logging.
+
+        Args:
+            agent_role: The role/name of the agent for dashboard display
+        """
 
         def step_callback(step_output):
+            dashboard.set_agent(agent_role)
+
             if isinstance(step_output, list):
                 for step in step_output:
                     if hasattr(step, "tool") and hasattr(step, "tool_input"):
@@ -221,9 +228,10 @@ class ComputerUseCrew:
         config = self.agents_config[config_key]
         tools = [tool_map[name] for name in tool_names if name in tool_map]
         backstory_with_context = config["backstory"] + self.platform_context
+        agent_role = config["role"]
 
         agent_params = {
-            "role": config["role"],
+            "role": agent_role,
             "goal": config["goal"],
             "backstory": backstory_with_context,
             "verbose": False,
@@ -231,7 +239,7 @@ class ComputerUseCrew:
             "max_iter": config.get("max_iter", 15),
             "allow_delegation": config.get("allow_delegation", False),
             "memory": True,
-            "step_callback": self._create_step_callback(),
+            "step_callback": self._create_step_callback(agent_role),
         }
 
         if is_manager:

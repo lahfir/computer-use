@@ -179,6 +179,9 @@ class DashboardManager:
         self._human_assistance_reason: Optional[str] = None
         self._human_assistance_instructions: Optional[str] = None
 
+        self._command_approval_active = False
+        self._command_approval_command: Optional[str] = None
+
         self._browser_profile: Optional[str] = None
         self._browser_session_active = False
 
@@ -343,12 +346,54 @@ class DashboardManager:
             padding=(0, 1),
         )
 
+    def _build_command_approval_panel(self) -> Panel:
+        """Render the command approval block."""
+        lines: List[Text] = []
+
+        header = Text()
+        header.append(" ⚠ ", style=f"bold {THEME['warning']}")
+        header.append("COMMAND REQUIRES APPROVAL", style=f"bold {THEME['bright']}")
+        lines.append(header)
+        lines.append(Text(""))
+
+        if self._command_approval_command:
+            lines.append(Text(" Command:", style=f"bold {THEME['muted']}"))
+            cmd_display = self._command_approval_command
+            if len(cmd_display) > 80:
+                cmd_display = cmd_display[:77] + "..."
+            lines.append(Text(f" {cmd_display}", style=f"bold {THEME['warning']}"))
+            lines.append(Text(""))
+
+        lines.append(Text(" Select an option:", style=THEME["muted"]))
+        lines.append(Text(""))
+
+        buttons = Text()
+        buttons.append(" ")
+        buttons.append("[1]", style=f"bold {THEME['success']}")
+        buttons.append(" Allow once  ", style=THEME["fg"])
+        buttons.append("[2]", style=f"bold {THEME['primary']}")
+        buttons.append(" Allow for session  ", style=THEME["fg"])
+        buttons.append("[3]", style=f"bold {THEME['error']}")
+        buttons.append(" Deny & stop", style=THEME["fg"])
+        lines.append(buttons)
+
+        return Panel(
+            Group(*lines),
+            title=f"[{THEME['warning']}]COMMAND APPROVAL[/]",
+            box=box.ROUNDED,
+            border_style=THEME["warning"],
+            padding=(0, 1),
+        )
+
     def _build_activity(self) -> Panel:
         """Build the activity log section with hierarchical entries."""
         lines = []
 
         if self._human_assistance_active:
             return self._build_human_assistance_panel()
+
+        if self._command_approval_active:
+            return self._build_command_approval_panel()
 
         filtered_entries = self._get_filtered_entries()
 
@@ -663,6 +708,18 @@ class DashboardManager:
         self._human_assistance_active = False
         self._human_assistance_reason = None
         self._human_assistance_instructions = None
+        self.refresh()
+
+    def show_command_approval(self, command: str) -> None:
+        """Show command approval panel in the dashboard."""
+        self._command_approval_active = True
+        self._command_approval_command = command
+        self.refresh()
+
+    def hide_command_approval(self) -> None:
+        """Hide the command approval panel."""
+        self._command_approval_active = False
+        self._command_approval_command = None
         self.refresh()
 
     def set_browser_session(self, active: bool, profile: Optional[str] = None) -> None:
@@ -1151,3 +1208,78 @@ def prompt_human_assistance(reason: str, instructions: str) -> HumanAssistanceRe
 
         except (EOFError, KeyboardInterrupt):
             return _finish_human_assistance(HumanAssistanceResult.CANCEL)
+
+
+class CommandApprovalResult(Enum):
+    """Result of command approval prompt."""
+
+    ALLOW_ONCE = "1"
+    ALLOW_SESSION = "2"
+    DENY = "3"
+
+
+def _resolve_command_choice(choice: str) -> Optional[CommandApprovalResult]:
+    """Map raw input to a CommandApprovalResult or None if unknown."""
+    normalized = choice.strip()
+
+    if normalized == "1":
+        return CommandApprovalResult.ALLOW_ONCE
+    if normalized == "2":
+        return CommandApprovalResult.ALLOW_SESSION
+    if normalized in ("3", ""):
+        return CommandApprovalResult.DENY
+
+    return None
+
+
+def _log_command_approval_result(result: CommandApprovalResult, command: str) -> None:
+    """Log the outcome of the command approval prompt."""
+    if result is CommandApprovalResult.ALLOW_ONCE:
+        dashboard.add_log_entry(
+            ActionType.COMPLETE,
+            f"Command approved (once): {command[:40]}...",
+            status="complete",
+        )
+    elif result is CommandApprovalResult.ALLOW_SESSION:
+        dashboard.add_log_entry(
+            ActionType.COMPLETE,
+            f"Command approved (session): {command[:40]}...",
+            status="complete",
+        )
+    elif result is CommandApprovalResult.DENY:
+        dashboard.add_log_entry(
+            ActionType.ERROR,
+            "Command denied by user",
+            status="error",
+        )
+
+
+def _finish_command_approval(result: CommandApprovalResult, command: str) -> str:
+    """Hide the panel and log the command approval outcome."""
+    _log_command_approval_result(result, command)
+    dashboard.hide_command_approval()
+    return result.value
+
+
+def print_command_approval(command: str) -> str:
+    """
+    Display command approval dialog integrated in the dashboard.
+
+    Args:
+        command: The shell command requiring approval
+
+    Returns:
+        User choice: "1" (allow once), "2" (allow session), "3" (deny)
+    """
+    dashboard.show_command_approval(command)
+
+    while True:
+        try:
+            choice = console.input(f"\n  [{THEME['accent']}]Select (1/2/3) ›[/] ")
+            resolved = _resolve_command_choice(choice)
+            if resolved:
+                return _finish_command_approval(resolved, command)
+            console.print(f"  [{THEME['warning']}]Invalid choice. Enter 1, 2, or 3.[/]")
+
+        except (EOFError, KeyboardInterrupt):
+            return _finish_command_approval(CommandApprovalResult.DENY, command)

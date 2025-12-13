@@ -49,24 +49,21 @@ class ExecuteShellCommandTool(BaseTool):
 
         dashboard.add_log_entry(ActionType.EXECUTE, f"Executing: {command}")
 
-        # Safety check
         safety_checker = self._safety_checker
+        confirmation_manager = self._confirmation_manager
+
         if safety_checker:
-            if safety_checker.is_destructive(command):
-                error_msg = f"Destructive command blocked: {command}"
+            if safety_checker.is_protected_path_in_command(command):
+                error_msg = f"Command targets protected system path: {command}"
                 dashboard.add_log_entry(ActionType.ERROR, error_msg, status="error")
                 return f"ERROR: {error_msg}"
 
-        # Confirmation check
-        confirmation_manager = self._confirmation_manager
-        if confirmation_manager and safety_checker:
-            requires_confirmation = safety_checker.requires_confirmation(command)
-            if requires_confirmation:
-                approved, reason = confirmation_manager.request_confirmation(command)
-                if not approved:
-                    error_msg = f"User {reason} command: {command}"
-                    dashboard.add_log_entry(ActionType.ERROR, error_msg, status="error")
-                    return f"ERROR: {error_msg}"
+        if confirmation_manager:
+            approved, reason = confirmation_manager.request_confirmation(command)
+            if not approved:
+                error_msg = f"User {reason} command: {command}"
+                dashboard.add_log_entry(ActionType.ERROR, error_msg, status="error")
+                return f"ERROR: {error_msg}"
 
         # Execute command
         try:

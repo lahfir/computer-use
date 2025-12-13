@@ -25,11 +25,13 @@ class SafetyChecker:
 
     DESTRUCTIVE_FLAGS = [
         "-rf",
-        "-r",
         "--recursive",
         "--force",
-        "/s",
-        "/q",
+    ]
+
+    WINDOWS_DESTRUCTIVE_FLAGS = [
+        r"\s/s\b",
+        r"\s/q\b",
     ]
 
     PROTECTED_PATHS = [
@@ -71,6 +73,10 @@ class SafetyChecker:
             if flag in command_lower:
                 return True
 
+        for pattern in self.WINDOWS_DESTRUCTIVE_FLAGS:
+            if re.search(pattern, command_lower):
+                return True
+
         return False
 
     def is_protected_path(self, path: str) -> bool:
@@ -88,6 +94,29 @@ class SafetyChecker:
         for protected in self.PROTECTED_PATHS:
             if normalized.startswith(protected.lower()):
                 return True
+
+        return False
+
+    def is_protected_path_in_command(self, command: str) -> bool:
+        """
+        Check if command operates on a protected system path.
+        Only blocks truly dangerous operations on system directories.
+
+        Args:
+            command: Shell command to check
+
+        Returns:
+            True if command targets a protected path with a destructive operation
+        """
+        if not self.is_destructive(command):
+            return False
+
+        for protected in self.PROTECTED_PATHS:
+            if protected.lower() in command.lower():
+                if re.search(r"\brm\b", command.lower()):
+                    return True
+                if re.search(r"\bdd\b", command.lower()):
+                    return True
 
         return False
 
