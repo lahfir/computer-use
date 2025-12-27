@@ -212,6 +212,7 @@ class ComputerUseCrew:
             agent_role: The role/name of the agent for dashboard display
         """
         display_name = AGENT_DISPLAY_NAMES.get(agent_role.strip(), agent_role)
+        is_manager = display_name == "Manager"
 
         def step_callback(step_output):
             if self.is_cancelled():
@@ -239,7 +240,11 @@ class ComputerUseCrew:
                     if self._is_valid_reasoning(thought):
                         dashboard.set_thinking(thought)
 
-                if hasattr(step, "tool") and hasattr(step, "tool_input"):
+                if (
+                    not is_manager
+                    and hasattr(step, "tool")
+                    and hasattr(step, "tool_input")
+                ):
                     dashboard.log_tool_start(step.tool, step.tool_input)
 
             self._update_token_usage()
@@ -315,7 +320,7 @@ class ComputerUseCrew:
             "role": agent_role,
             "goal": config["goal"],
             "backstory": backstory_with_context,
-            "verbose": False,
+            "verbose": dashboard.is_verbose,
             "llm": llm,
             "max_iter": config.get("max_iter", 15),
             "allow_delegation": config.get("allow_delegation", False),
@@ -414,7 +419,7 @@ IMPORTANT:
             tasks=[manager_task],
             process=Process.hierarchical,
             manager_agent=agents_dict["manager"],
-            verbose=False,
+            verbose=dashboard.is_verbose,
         )
 
         loop = asyncio.get_event_loop()

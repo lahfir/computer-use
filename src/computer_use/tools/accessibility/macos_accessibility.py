@@ -85,17 +85,20 @@ class MacOSAccessibility:
         self._element_cache.clear()
         self.get_app(app_name)
 
-    def get_app(self, app_name: str) -> Optional[Any]:
+    def get_app(self, app_name: str, retry_count: int = 3) -> Optional[Any]:
         """
-        Get application reference by name using smart matching.
+        Get application reference by name using smart matching with retry.
 
         Strategy:
         1. Check cache
         2. Try atomacos getAppRefByLocalizedName
         3. Smart fallback: Use NSRunningApplication's localizedName()
+        4. Fallback: Check if frontmost app matches
+        5. Retry with cache clear if not found
 
         Args:
             app_name: Application name (case-insensitive partial match)
+            retry_count: Number of retry attempts
 
         Returns:
             App reference or None
@@ -106,37 +109,52 @@ class MacOSAccessibility:
         app_name = app_name.strip()
         cache_key = app_name.lower()
 
-        if cache_key in self._app_cache:
-            return self._app_cache[cache_key]
+        for attempt in range(retry_count):
+            if attempt > 0:
+                self._app_cache.pop(cache_key, None)
+                time.sleep(0.3)
 
-        try:
-            app = self.atomacos.getAppRefByLocalizedName(app_name)
-            if app:
-                self._app_cache[cache_key] = app
-                return app
-        except Exception:
-            pass
+            if cache_key in self._app_cache:
+                return self._app_cache[cache_key]
 
-        try:
-            for running_app in self.atomacos.NativeUIElement.getRunningApps():
-                localized_name = None
-                if hasattr(running_app, "localizedName"):
-                    localized_name = running_app.localizedName()
+            try:
+                app = self.atomacos.getAppRefByLocalizedName(app_name)
+                if app:
+                    self._app_cache[cache_key] = app
+                    return app
+            except Exception:
+                pass
 
-                if localized_name and self._matches_name(localized_name, app_name):
-                    bundle_id = None
-                    if hasattr(running_app, "bundleIdentifier"):
-                        bundle_id = running_app.bundleIdentifier()
-                    if bundle_id:
-                        try:
-                            app_ref = self.atomacos.getAppRefByBundleId(bundle_id)
-                            if app_ref:
-                                self._app_cache[cache_key] = app_ref
-                                return app_ref
-                        except Exception:
-                            continue
-        except Exception:
-            pass
+            try:
+                for running_app in self.atomacos.NativeUIElement.getRunningApps():
+                    localized_name = None
+                    if hasattr(running_app, "localizedName"):
+                        localized_name = running_app.localizedName()
+
+                    if localized_name and self._matches_name(localized_name, app_name):
+                        bundle_id = None
+                        if hasattr(running_app, "bundleIdentifier"):
+                            bundle_id = running_app.bundleIdentifier()
+                        if bundle_id:
+                            try:
+                                app_ref = self.atomacos.getAppRefByBundleId(bundle_id)
+                                if app_ref:
+                                    self._app_cache[cache_key] = app_ref
+                                    return app_ref
+                            except Exception:
+                                continue
+            except Exception:
+                pass
+
+            try:
+                frontmost = self.atomacos.getFrontmostApp()
+                if frontmost:
+                    front_title = getattr(frontmost, "AXTitle", None) or ""
+                    if self._matches_name(str(front_title), app_name):
+                        self._app_cache[cache_key] = frontmost
+                        return frontmost
+            except Exception:
+                pass
 
         return None
 

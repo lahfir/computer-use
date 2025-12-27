@@ -72,7 +72,9 @@ class CrewGuiDelegate:
         try:
             result = crew.kickoff()
             output = str(result)
-            success = "could not" not in output.lower() and "failed" not in output.lower()
+            success = (
+                "could not" not in output.lower() and "failed" not in output.lower()
+            )
             return GuiDelegationResult(success=success, output=output)
         except KeyboardInterrupt:
             return GuiDelegationResult(success=False, output="Task cancelled by user")
@@ -87,6 +89,7 @@ class CrewGuiDelegate:
 
         def step_callback(step_output):
             from ..crew import ComputerUseCrew
+
             if ComputerUseCrew.is_cancelled():
                 raise KeyboardInterrupt("Task cancelled by user")
 

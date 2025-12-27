@@ -608,7 +608,7 @@ class GetAccessibleElementsInput(BaseModel):
     app_name: str = Field(description="Application name to get elements from")
     filter_text: Optional[str] = Field(
         default=None,
-        description="Optional text to filter elements by (case-insensitive search in label/title)"
+        description="Optional text to filter elements by (case-insensitive search in label/title)",
     )
 
 
@@ -757,7 +757,8 @@ class GetAccessibleElementsTool(InstrumentedBaseTool):
             if filter_text:
                 filter_lower = filter_text.lower()
                 normalized_elements = [
-                    e for e in normalized_elements
+                    e
+                    for e in normalized_elements
                     if filter_lower in (e.get("label", "") or "").lower()
                     or filter_lower in (e.get("title", "") or "").lower()
                 ]

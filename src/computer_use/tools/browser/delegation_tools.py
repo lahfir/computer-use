@@ -1,7 +1,7 @@
 """Delegation tools for Browser-Use.
 
 These tools allow the Browser-Use autonomous agent to temporarily delegate
-OS-native dialog handling (permission prompts, desktop app dialogs) to the 
+OS-native dialog handling (permission prompts, desktop app dialogs) to the
 existing CrewAI GUI specialist agent, then resume browser control.
 
 NOTE: For web file uploads, use browser-use's native upload_file action.

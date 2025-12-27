@@ -12,7 +12,6 @@ import uuid
 from typing import Any, Dict, List, Optional, Set
 
 from rich.console import Console
-from rich.status import Status
 from rich.text import Text
 
 from .state import TaskState, AgentState, ToolState, VerbosityLevel, ActionType
@@ -121,9 +120,9 @@ class DashboardManager:
         # Tool history for explorer
         self._tool_history: List[Dict[str, Any]] = []
 
-        # Live status spinner (Rich Status)
-        self._live_status: Optional[Status] = None
-        self._current_status_msg: str = ""
+        # Status bar timer
+        self._status_timer: Optional[threading.Timer] = None
+        self._last_status_update: float = 0
 
     def _flush(self) -> None:
         """Force flush output to terminal immediately."""
@@ -132,15 +131,11 @@ class DashboardManager:
 
     def _print(self, text: Text) -> None:
         """Print with immediate flush."""
-        if self._live_status:
-            self._live_status.update(self._build_status_message())
         self.console.print(text)
         self._flush()
 
     def _print_raw(self, content: str) -> None:
         """Print raw string with immediate flush."""
-        if self._live_status:
-            self._live_status.update(self._build_status_message())
         self.console.print(content)
         self._flush()
 
@@ -383,7 +378,6 @@ class DashboardManager:
         """Print agent header when it becomes active."""
         self.console.print()
 
-        # Create a nice box header
         name_part = f"┌─ {agent.name} "
         padding = "─" * max(1, 56 - len(agent.name))
         status_part = f" {ICONS['agent_active']} ACTIVE ─┐"
@@ -480,38 +474,90 @@ class DashboardManager:
             self._print(error_line)
 
     # ─────────────────────────────────────────────────────────────────────
-    # Live status spinner (using Rich Status)
+    # Live status bar (timer-based real-time updates)
     # ─────────────────────────────────────────────────────────────────────
 
     def _start_live_status(self) -> None:
-        """Start the live status spinner."""
-        if self._live_status:
-            return
-
-        self._current_status_msg = self._build_status_message()
-        self._live_status = Status(
-            self._current_status_msg,
-            spinner="dots",
-            spinner_style=THEME["tool_pending"],
-            console=self.console,
-        )
-        self._live_status.start()
+        """Start the periodic status bar updates."""
+        self._schedule_status_update()
 
     def _stop_live_status(self) -> None:
-        """Stop the live status spinner."""
-        if self._live_status:
-            self._live_status.stop()
-            self._live_status = None
+        """Stop the periodic status bar updates and clear the sticky footer."""
+        if self._status_timer:
+            self._status_timer.cancel()
+            self._status_timer = None
+        sys.stdout.write("\033[s")
+        sys.stdout.write("\033[999;1H")
+        sys.stdout.write("\033[K")
+        sys.stdout.write("\033[u")
+        self._flush()
+
+    def _schedule_status_update(self) -> None:
+        """Schedule the next status bar update."""
+        if not self._is_running:
+            return
+        self._status_timer = threading.Timer(1.0, self._tick_status)
+        self._status_timer.daemon = True
+        self._status_timer.start()
+
+    def _tick_status(self) -> None:
+        """Update status bar on timer tick."""
+        if not self._is_running or not self._task:
+            return
+        self._print_live_status_bar()
+        self._schedule_status_update()
+
+    def _print_live_status_bar(self) -> None:
+        """Print sticky status bar at the bottom of terminal."""
+        if not self._task:
+            return
+
+        elapsed = self._task.duration
+        if elapsed < 60:
+            time_str = f"{int(elapsed)}s"
+        else:
+            time_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s"
+
+        tokens_in = self._task.token_input
+        tokens_out = self._task.token_output
+
+        agent_name = self._current_agent_name or "Starting"
+
+        agent_tools = "0/0"
+        if self._task.active_agent_id:
+            agent = self._task.agents.get(self._task.active_agent_id)
+            if agent:
+                total = len(agent.tools)
+                done = sum(1 for t in agent.tools if t.status != "pending")
+                agent_tools = f"{done}/{total}"
+
+        total_tools = self._task.total_tools
+        global_done = sum(
+            1
+            for a in self._task.agents.values()
+            for t in a.tools
+            if t.status != "pending"
+        )
+        global_tools = f"{global_done}/{total_tools}"
+
+        spinner = "|/-\\"
+        spinner_char = spinner[int(elapsed) % len(spinner)]
+
+        status_line = (
+            f"  [{spinner_char}] {agent_name} [{agent_tools}] │ "
+            f"t:{time_str} │ all:{global_tools} │ "
+            f"tok:{tokens_in}↑{tokens_out}↓"
+        )
+
+        sys.stdout.write("\033[s")
+        sys.stdout.write("\033[999;1H")
+        sys.stdout.write(f"\033[K\033[7m{status_line}\033[0m")
+        sys.stdout.write("\033[u")
+        self._flush()
 
     def _update_live_status(self, message: str = None) -> None:
-        """Update the live status message."""
-        if message:
-            self._current_status_msg = message
-        else:
-            self._current_status_msg = self._build_status_message()
-
-        if self._live_status:
-            self._live_status.update(self._current_status_msg)
+        """Update the status message."""
+        pass
 
     def _build_status_message(self) -> str:
         """Build the current status message for the spinner."""

@@ -17,27 +17,24 @@ class InstrumentedBaseTool(BaseTool):
                 tool_name = getattr(self, "name", None)
                 tool_id = dashboard.get_pending_tool_id(tool_name)
 
-                if not tool_id:
-                    tool_id = dashboard.log_tool_start(tool_name or "unknown", kwargs)
-
                 try:
                     result = original_run(self, *args, **kwargs)
 
-                    success = True
-                    action_taken = ""
-                    error = None
-
-                    if hasattr(result, "success"):
-                        success = result.success
-                    if hasattr(result, "action_taken"):
-                        action_taken = result.action_taken
-                    if hasattr(result, "error"):
-                        error = result.error
-                    elif isinstance(result, str) and result.startswith("ERROR"):
-                        success = False
-                        error = result
-
                     if tool_id:
+                        success = True
+                        action_taken = ""
+                        error = None
+
+                        if hasattr(result, "success"):
+                            success = result.success
+                        if hasattr(result, "action_taken"):
+                            action_taken = result.action_taken
+                        if hasattr(result, "error"):
+                            error = result.error
+                        elif isinstance(result, str) and result.startswith("ERROR"):
+                            success = False
+                            error = result
+
                         dashboard.log_tool_complete(
                             tool_id,
                             success=success,
