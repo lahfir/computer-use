@@ -337,9 +337,9 @@ class MacOSAccessibility:
             node: Current accessibility node
             elements: List to collect elements into
             interactive_only: Only collect interactive elements
-            depth: Current recursion depth (max 25)
+            depth: Current recursion depth (max 40)
         """
-        if depth > 25:
+        if depth > 40:
             return
 
         try:
@@ -401,7 +401,7 @@ class MacOSAccessibility:
             label = self._get_label(node)
             identifier = getattr(node, "AXIdentifier", "") or ""
 
-            if not label and not identifier:
+            if not label and not identifier and not has_actions:
                 return None
 
             element_id = str(uuid.uuid4())[:8]
@@ -503,7 +503,7 @@ class MacOSAccessibility:
                             import pyautogui
 
                             pyautogui.click(px, py)
-                            time.sleep(0.5)
+                            time.sleep(0.15)
                             self.invalidate_cache()
                             return (
                                 True,
@@ -513,7 +513,7 @@ class MacOSAccessibility:
                         pass
                     try:
                         self._perform_click(clickable_parent)
-                        time.sleep(0.3)
+                        time.sleep(0.1)
                         self.invalidate_cache()
                         return (True, f"Clicked parent of '{label}'")
                     except Exception:
@@ -525,7 +525,7 @@ class MacOSAccessibility:
 
                 x, y = center
                 pyautogui.click(x, y)
-                time.sleep(0.5)
+                time.sleep(0.15)
                 self.invalidate_cache()
                 return (True, f"Clicked '{label}' at ({x}, {y})")
             except Exception:
@@ -536,7 +536,7 @@ class MacOSAccessibility:
             if clickable_parent:
                 try:
                     self._perform_click(clickable_parent)
-                    time.sleep(0.3)
+                    time.sleep(0.1)
                     self.invalidate_cache()
                     return (True, f"Clicked parent of '{label}'")
                 except Exception:
@@ -544,7 +544,7 @@ class MacOSAccessibility:
 
             try:
                 self._perform_click(node)
-                time.sleep(0.3)
+                time.sleep(0.1)
                 self.invalidate_cache()
                 return (True, f"Clicked '{label}'")
             except Exception:

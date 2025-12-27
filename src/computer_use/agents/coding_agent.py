@@ -18,6 +18,78 @@ MODULE_DIR = Path(__file__).parent.parent
 CODE_DIR_NAME = "code"
 VENV_NAME = ".venv"
 
+class ClineOutputFormatter:
+    """Formats Cline CLI output with rich UI elements."""
+
+    def __init__(self):
+        self._in_code_block = False
+        self._code_lang = ""
+        self._spinner_frames = ["◐", "◓", "◑", "◒"]
+        self._spinner_idx = 0
+
+    def _get_spinner(self) -> str:
+        frame = self._spinner_frames[self._spinner_idx]
+        self._spinner_idx = (self._spinner_idx + 1) % len(self._spinner_frames)
+        return frame
+
+    def format_line(self, line: str) -> Optional[str]:
+        """Format a single line for display. Returns None to skip."""
+        stripped = line.strip()
+
+        if stripped.startswith("```"):
+            if not self._in_code_block:
+                self._in_code_block = True
+                self._code_lang = stripped[3:].strip() or "text"
+                return f"  [dim]┌─ {self._code_lang} ─[/]"
+            else:
+                self._in_code_block = False
+                return "  [dim]└────────────[/]"
+
+        if self._in_code_block:
+            return f"  [dim]│[/] [white]{line[:100]}[/]"
+
+        if "### Cline is running" in line:
+            cmd = line.split("`")[1] if "`" in line else "command"
+            cmd = cmd[:60] + "..." if len(cmd) > 60 else cmd
+            return f"  [cyan]{self._get_spinner()}[/] [bold]Running[/] [dim]{cmd}[/]"
+
+        if "## API request completed" in line:
+            if "`" in line:
+                tokens = line.split("`")[1]
+                return f"  [dim]⚡ {tokens}[/]"
+            return None
+
+        if "## Checkpoint created" in line:
+            return "  [dim]📍[/]"
+
+        if "thinking" in line.lower() or "## Cline" in line:
+            return f"  [cyan]{self._get_spinner()}[/] [italic dim]Thinking...[/]"
+
+        if any(x in line.lower() for x in ["created", "wrote", "written to"]):
+            return f"  [green]✓[/] {stripped[:80]}"
+
+        if "error" in line.lower() or "failed" in line.lower():
+            return f"  [red]✗[/] {stripped[:80]}"
+
+        if any(x in line.lower() for x in ["success", "passed", "complete"]):
+            return f"  [green]●[/] {stripped[:80]}"
+
+        if line.startswith("*Conversation history"):
+            return None
+
+        if not stripped:
+            return None
+
+        if stripped.startswith("##"):
+            text = stripped.lstrip("#").strip()
+            return f"  [dim italic]💭 {text[:80]}[/]"
+
+        if stripped and not stripped.startswith("#"):
+            return f"  [dim]│[/] {stripped[:100]}"
+
+        return f"  [dim]│[/] {stripped[:100]}"
+
+
 CODING_GUIDELINES = """
 CRITICAL REQUIREMENTS - DO NOT SKIP:
 
@@ -143,10 +215,9 @@ class CodingAgent:
 
         project_path = self._get_project_path(task)
 
-        dashboard.add_log_entry(ActionType.PLAN, f"Cline task: {task[:80]}")
-        dashboard.add_log_entry(ActionType.OPEN, f"Project: {project_path}")
         dashboard.set_agent("Coding Agent")
-        dashboard.set_action("Cline", target=str(project_path))
+        dashboard.console.print(f"\n  [bold cyan]◆ Cline[/] [dim]→[/] {task[:80]}")
+        dashboard.console.print(f"  [dim]  Project:[/] {project_path}")
 
         enhanced_task = self._build_task_with_guidelines(task, project_path, context)
 
@@ -254,11 +325,9 @@ class CodingAgent:
         Returns:
             Dictionary with success, output, and error
         """
-        task_preview = task.split("ACTUAL TASK:")[-1].strip()[:150]
-        dashboard.add_log_entry(ActionType.PLAN, f"Executing: {task_preview}")
-        dashboard.set_agent("Coding Agent")
-        dashboard.set_action("Cline", target=str(project_path))
+        dashboard.console.print(f"  [dim]  Running cline...[/]")
 
+        formatter = ClineOutputFormatter()
         output_lines = []
 
         try:
@@ -275,22 +344,9 @@ class CodingAgent:
                 if line:
                     clean_line = line.rstrip()
                     output_lines.append(clean_line)
-                    if clean_line.strip():
-                        lower_line = clean_line.lower()
-                        if any(
-                            kw in lower_line
-                            for kw in [
-                                "creat",
-                                "writ",
-                                "success",
-                                "complet",
-                                "error",
-                                "fail",
-                                "install",
-                                "running",
-                            ]
-                        ):
-                            self._log_batcher.add(ActionType.PLAN, clean_line[:100])
+                    formatted = formatter.format_line(clean_line)
+                    if formatted:
+                        dashboard.console.print(formatted)
 
             self._log_batcher.flush_now()
             process.wait(timeout=1800)

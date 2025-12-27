@@ -76,6 +76,8 @@ ACTION_ICONS = {
     ActionType.WEBHOOK: "⚡",
 }
 
+THINKING_SPINNER_FRAMES = ["◜", "◠", "◝", "◞", "◡", "◟"]
+
 
 HIGH_SIGNAL_NAVIGATE_KEYWORDS = (
     "step",
@@ -296,6 +298,8 @@ class DashboardManager:
         self._agent_ids: Dict[str, str] = {}
         self._scroll_region_set = False
         self._tool_history: List[Dict[str, Any]] = []
+        self._thinking_spinner_idx = 0
+        self._is_thinking = False
 
     @property
     def is_quiet(self) -> bool:
@@ -742,22 +746,24 @@ class DashboardManager:
         return False
 
     def _build_status_bar(self) -> Panel:
-        """Build status bar with thinking, elapsed time, and tool stats."""
+        """Build status bar with agent, action, time, and stats."""
         status = Text()
 
-        if self._current_thinking:
-            thought_preview = self._current_thinking[:50]
-            if len(self._current_thinking) > 50:
-                thought_preview += "..."
-            status.append(" 💭 ", style=THEME["secondary"])
-            status.append(thought_preview, style=f"italic {THEME['fg']}")
-            status.append("  │  ", style=THEME["border"])
-        elif self._current_agent:
+        if self._current_agent:
             status.append(" ● ", style=f"bold {THEME['success']}")
             status.append(self._current_agent, style=f"bold {THEME['accent']}")
-            status.append("  │  ", style=THEME["border"])
         else:
-            status.append(" ○ Ready  │  ", style=THEME["muted"])
+            status.append(" ○ ", style=THEME["muted"])
+            status.append("Ready", style=THEME["muted"])
+
+        if self._current_action:
+            status.append("  ▸ ", style=THEME["accent"])
+            action_text = self._current_action[:25]
+            if len(self._current_action) > 25:
+                action_text += "..."
+            status.append(action_text, style=f"dim {THEME['fg']}")
+
+        status.append("  │  ", style=THEME["border"])
 
         if self._task_start_time:
             elapsed = time.time() - self._task_start_time
@@ -767,43 +773,36 @@ class DashboardManager:
                 mins = int(elapsed // 60)
                 secs = int(elapsed % 60)
                 time_str = f"{mins}m {secs}s"
-            status.append("⏱ ", style=THEME["muted"])
-            status.append(time_str, style=THEME["fg"])
+            status.append("⏱ ", style=THEME["accent"])
+            status.append(time_str, style=f"bold {THEME['fg']}")
             status.append("  │  ", style=THEME["border"])
 
         if self._tool_count > 0:
-            status.append(f"{self._tool_count} tools", style=THEME["fg"])
-            status.append("  │  ", style=THEME["border"])
-            error_count = self._tool_count - self._tool_success_count
-            status.append(f"{self._tool_success_count}", style=f"bold {THEME['success']}")
             status.append("✓ ", style=THEME["success"])
+            status.append(f"{self._tool_success_count}/{self._tool_count}", style=f"bold {THEME['fg']}")
+            error_count = self._tool_count - self._tool_success_count
             if error_count > 0:
-                status.append(f"{error_count}", style=f"bold {THEME['error']}")
-                status.append("✗", style=THEME["error"])
-            else:
-                status.append("0✗", style=THEME["muted"])
+                status.append(" ", style=THEME["fg"])
+                status.append(f"{error_count}✗", style=f"bold {THEME['error']}")
             status.append("  │  ", style=THEME["border"])
 
         if self._token_input > 0 or self._token_output > 0:
             total_tokens = self._token_input + self._token_output
             if total_tokens >= 1000:
-                token_str = f"{total_tokens/1000:.1f}k"
+                token_str = f"{total_tokens/1000:.0f}k"
             else:
                 token_str = str(total_tokens)
-            status.append("◇ ", style=THEME["accent"])
-            status.append(token_str, style=THEME["fg"])
-            status.append(" tok", style=THEME["muted"])
+            status.append("◇ ", style=THEME["secondary"])
+            status.append(token_str, style=f"bold {THEME['fg']}")
             status.append("  │  ", style=THEME["border"])
 
-        status.append("ESC", style=f"bold {THEME['muted']}")
-        status.append(" cancel  ", style=THEME["muted"])
-        status.append("^C", style=f"bold {THEME['muted']}")
-        status.append(" quit", style=THEME["muted"])
+        status.append("ESC", style=f"bold {THEME['warning']}")
+        status.append(" stop", style=THEME["muted"])
 
         return Panel(
             status,
             box=box.ROUNDED,
-            border_style=THEME["accent"],
+            border_style=THEME["border"],
             padding=(0, 0),
         )
 
@@ -837,8 +836,6 @@ class DashboardManager:
         self._header_printed = False
 
         if self._use_native_scroll:
-            self._print_header()
-            self._setup_scroll_region()
             self._render_sticky_footer()
             self._start_periodic_refresh()
         else:
@@ -865,7 +862,8 @@ class DashboardManager:
 
         if self._use_native_scroll:
             self._clear_sticky_footer()
-            self._reset_scroll_region()
+            sys.stdout.write("\n")
+            sys.stdout.flush()
         elif self._live:
             try:
                 self._live.stop()
@@ -894,7 +892,8 @@ class DashboardManager:
         """Start periodic refresh timer for elapsed time updates."""
         if self._refresh_timer is not None:
             return
-        self._refresh_timer = threading.Timer(1.0, self._periodic_refresh)
+        interval = 0.15 if self._is_thinking else 0.5
+        self._refresh_timer = threading.Timer(interval, self._periodic_refresh)
         self._refresh_timer.daemon = True
         self._refresh_timer.start()
 
@@ -979,14 +978,21 @@ class DashboardManager:
         """Print only new entries to console (goes to scrollback)."""
         with self._lock:
             agents = self._group_by_agent()
+            has_new_content = False
 
             for agent_id, agent_data in agents.items():
                 agent_entry = agent_data["entry"]
                 agent_header_key = f"agent_header:{agent_entry.agent_name}"
 
                 if agent_header_key in self._printed_entries:
-                    self._print_new_tools_for_agent(agent_id, agent_data)
+                    if self._print_new_tools_for_agent(agent_id, agent_data):
+                        has_new_content = True
                     continue
+
+                if not has_new_content:
+                    sys.stdout.write("\r\x1b[2K")
+                    sys.stdout.flush()
+                    has_new_content = True
 
                 self._printed_entries.add(agent_header_key)
 
@@ -998,26 +1004,15 @@ class DashboardManager:
 
                 self._print_new_tools_for_agent(agent_id, agent_data)
 
-    def _print_new_tools_for_agent(self, agent_id: str, agent_data: Dict) -> None:
-        """Print new tools and their children for an agent."""
+    def _print_new_tools_for_agent(self, agent_id: str, agent_data: Dict) -> bool:
+        """Print new tools and their children for an agent. Returns True if anything printed."""
         items = agent_data.get("items", [])
         tools = agent_data["tools"]
+        printed = False
 
         for item_type, item_data in items:
             if item_type == "thinking":
-                entry_id = item_data.entry_id
-                thinking_key = f"thinking:{entry_id}"
-                if thinking_key in self._printed_entries:
-                    continue
-                self._printed_entries.add(thinking_key)
-
-                thought = item_data.message[:120]
-                if len(item_data.message) > 120:
-                    thought += "..."
-                thinking_line = Text()
-                thinking_line.append("  > ", style=THEME["secondary"])
-                thinking_line.append(thought, style=f"italic {THEME['muted']}")
-                self.console.print(thinking_line)
+                continue
 
             elif item_type == "tool":
                 tool_id = item_data
@@ -1030,6 +1025,10 @@ class DashboardManager:
 
                 tool_key = f"tool:{tool_id}"
                 if tool_key not in self._printed_entries:
+                    if not printed:
+                        sys.stdout.write("\r\x1b[2K")
+                        sys.stdout.flush()
+                        printed = True
                     self._printed_entries.add(tool_key)
                     self._print_tool_entry(tool_entry)
 
@@ -1037,14 +1036,24 @@ class DashboardManager:
                     child_key = f"child:{child.entry_id}"
                     if child_key in self._printed_entries:
                         continue
+                    if not printed:
+                        sys.stdout.write("\r\x1b[2K")
+                        sys.stdout.flush()
+                        printed = True
                     self._printed_entries.add(child_key)
                     self._print_child_entry(child)
 
                 if tool_entry.status in ("complete", "error"):
                     status_key = f"status:{tool_id}:{tool_entry.status}"
                     if status_key not in self._printed_entries:
+                        if not printed:
+                            sys.stdout.write("\r\x1b[2K")
+                            sys.stdout.flush()
+                            printed = True
                         self._printed_entries.add(status_key)
                         self._print_tool_completion(tool_entry)
+
+        return printed
 
     def _print_tool_entry(self, tool_entry: HierarchicalLogEntry) -> None:
         """Print a tool entry line."""
@@ -1113,69 +1122,38 @@ class DashboardManager:
         return f"{mins}m {secs}s"
 
     def _setup_scroll_region(self) -> None:
-        """Set scroll region to reserve bottom line for status bar."""
-        if self._scroll_region_set or not sys.stdout.isatty():
-            return
-        height = self.console.size.height
-        if height <= 2:
-            return
-        sys.stdout.write(f"\x1b[1;{height - 1}r")
-        sys.stdout.write(f"\x1b[{height - 1};1H")
-        sys.stdout.flush()
-        self._scroll_region_set = True
+        pass
 
     def _reset_scroll_region(self) -> None:
-        """Reset scroll region to full terminal."""
-        if not self._scroll_region_set:
-            return
-        sys.stdout.write("\x1b[r")
-        sys.stdout.flush()
-        self._scroll_region_set = False
+        pass
 
     def _render_sticky_footer(self) -> None:
-        """Render status bar at terminal bottom without scrolling."""
+        """Print status inline after content."""
         if not sys.stdout.isatty():
             return
 
-        height = self.console.size.height
-        width = self.console.size.width
-
         elapsed = self._format_elapsed()
-        error_count = self._tool_count - self._tool_success_count
         agent = self._current_agent or "Ready"
 
-        parts = [f"─── {agent}", elapsed, f"{self._tool_success_count}✓ {error_count}✗"]
+        parts = [agent, f"⏱ {elapsed}"]
 
-        if self._token_input > 0 or self._token_output > 0:
-            total_tokens = self._token_input + self._token_output
-            if total_tokens >= 1000:
-                token_str = f"{total_tokens // 1000}k tokens"
-            else:
-                token_str = f"{total_tokens} tokens"
-            parts.append(token_str)
+        if self._tool_count > 0:
+            parts.append(f"✓ {self._tool_success_count}/{self._tool_count}")
 
-        parts.append("───")
-        content = " │ ".join(parts)
-        content = content[:width].ljust(width)
+        if self._token_input + self._token_output > 0:
+            total = self._token_input + self._token_output
+            parts.append(f"◇ {total // 1000}k" if total >= 1000 else f"◇ {total}")
+
+        status = "  │  ".join(parts)
 
         with self._lock:
-            sys.stdout.write("\x1b7")
-            sys.stdout.write(f"\x1b[{height};1H")
-            sys.stdout.write("\x1b[2K")
-            sys.stdout.write(f"\x1b[2m{content}\x1b[0m")
-            sys.stdout.write("\x1b8")
+            sys.stdout.write(f"\r\x1b[2K\x1b[2m{status}\x1b[0m")
             sys.stdout.flush()
 
     def _clear_sticky_footer(self) -> None:
-        """Clear the sticky footer area."""
-        if not sys.stdout.isatty():
-            return
-        height = self.console.size.height
+        """Clear the inline status line."""
         with self._lock:
-            sys.stdout.write("\x1b7")
-            sys.stdout.write(f"\x1b[{height};1H")
-            sys.stdout.write("\x1b[2K")
-            sys.stdout.write("\x1b8")
+            sys.stdout.write("\r\x1b[2K")
             sys.stdout.flush()
 
     def set_task(self, task: str) -> None:
@@ -1183,6 +1161,7 @@ class DashboardManager:
         self._status = "working"
         self._action_log = []
         self._activity.clear()
+        self._printed_entries.clear()
         self._task_start_time = time.time()
         self._tool_count = 0
         self._tool_success_count = 0
@@ -1228,6 +1207,17 @@ class DashboardManager:
     ) -> None:
         clean_action = strip_ansi(action)
         clean_target = strip_ansi(target) if target else None
+
+        if clean_action == "Thinking":
+            self._is_thinking = True
+            if self._refresh_timer:
+                self._refresh_timer.cancel()
+                self._refresh_timer = None
+            self._start_periodic_refresh()
+            self._render_sticky_footer()
+            return
+
+        self._is_thinking = False
 
         if self._activity.active_agent_id and clean_action != self._current_action:
             tool_id = str(uuid.uuid4())
@@ -1405,6 +1395,7 @@ class DashboardManager:
         self._activity.entry_order.append(input_id)
 
         self._current_action = tool_name
+        self._is_thinking = False
         self._mark_dirty()
 
         self._tool_history.append({
@@ -1416,6 +1407,10 @@ class DashboardManager:
             "status": "pending",
             "timestamp": time.time(),
         })
+
+        if self._use_native_scroll and self._is_running:
+            self._print_new_entries()
+            self._render_sticky_footer()
 
         return tool_id
 
@@ -1504,12 +1499,16 @@ class DashboardManager:
 
         for tool in self._tool_history:
             if tool["id"] == tool_id:
-                tool["output"] = data
+                tool["output"] = action_taken if action_taken else data
                 tool["error"] = error
                 tool["status"] = "complete" if success else "error"
                 break
 
         self._mark_dirty()
+
+        if self._use_native_scroll and self._is_running:
+            self._print_new_entries()
+            self._render_sticky_footer()
 
     def _format_tool_input(self, tool_input: Any) -> str:
         """Format tool input for display (truncated)."""
@@ -1721,7 +1720,12 @@ class DashboardManager:
 
         self.console.print(f"[{THEME['success']}]│ Output:[/]")
         if tool["output"]:
-            self._print_json_pretty(tool["output"], prefix="│   ")
+            if isinstance(tool["output"], str):
+                for line in tool["output"].split("\n"):
+                    if line.strip():
+                        self.console.print(f"[{THEME['fg']}]│   {line}[/]")
+            else:
+                self._print_json_pretty(tool["output"], prefix="│   ")
         elif tool["error"]:
             self.console.print(f"[{THEME['error']}]│   {tool['error']}[/]")
         else:

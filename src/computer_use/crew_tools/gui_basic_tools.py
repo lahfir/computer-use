@@ -644,6 +644,15 @@ class GetAccessibleElementsTool(InstrumentedBaseTool):
         if cancelled := check_cancellation():
             return cancelled
 
+        if not hasattr(self, "_tool_registry") or self._tool_registry is None:
+            return ActionResult(
+                success=False,
+                action_taken=f"Tool registry not initialized for {app_name}",
+                method_used="accessibility",
+                confidence=0.0,
+                error="Internal error: _tool_registry not set on tool instance",
+            )
+
         accessibility_tool = self._tool_registry.get_tool("accessibility")
 
         if not accessibility_tool or not accessibility_tool.available:
@@ -682,12 +691,15 @@ class GetAccessibleElementsTool(InstrumentedBaseTool):
                     elements = accessibility_tool.get_all_interactive_elements(app_name)
 
             if not elements:
+                app_ref = accessibility_tool.get_app(app_name)
+                windows = accessibility_tool.get_windows(app_ref) if app_ref else []
+                debug_info = f"app_found={app_ref is not None}, windows={len(windows)}"
                 return ActionResult(
                     success=True,
-                    action_taken=f"No interactive elements found in {app_name}",
+                    action_taken=f"No interactive elements found in {app_name}. Debug: {debug_info}. Verify if the application is correctly focused or if it contains any UI.",
                     method_used="accessibility",
                     confidence=1.0,
-                    data={"elements": [], "count": 0},
+                    data={"elements": [], "count": 0, "debug": debug_info},
                 )
 
             print_action_result(True, f"Found {len(elements)} elements")
@@ -786,11 +798,11 @@ class GetAccessibleElementsTool(InstrumentedBaseTool):
             ]
 
             result_elements = (
-                meaningful_elements[:100]
+                meaningful_elements[:200]
                 if meaningful_elements
-                else normalized_elements[:100]
+                else normalized_elements[:200]
             )
-            display_limit = 50
+            display_limit = 75
             truncated_note = ""
             if len(result_elements) > display_limit:
                 truncated_note = f"\n... +{len(result_elements) - display_limit} more"

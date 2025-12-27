@@ -1,6 +1,7 @@
 """CrewAI-based multi-agent computer automation system with hierarchical delegation."""
 
 import asyncio
+import os
 import platform
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -35,7 +36,6 @@ from .utils.ui import (
     ActionType,
     dashboard,
     print_failure,
-    print_info,
     print_success,
 )
 from .services.crew_gui_delegate import CrewGuiDelegate
@@ -233,6 +233,7 @@ class ComputerUseCrew:
                     dashboard.log_tool_start(step.tool, step.tool_input)
 
             self._update_token_usage()
+            dashboard.set_action("Thinking", "planning next action...")
 
         return step_callback
 
@@ -353,7 +354,14 @@ IMPORTANT:
     async def _run_hierarchical_crew(
         self, task: str, context_str: str
     ) -> TaskExecutionResult:
-        """Execute the hierarchical crew with manager delegation."""
+        """Execute the hierarchical crew with thread-based execution."""
+        dashboard.add_log_entry(
+            ActionType.EXECUTE,
+            "Starting hierarchical execution",
+            status="pending",
+        )
+        dashboard.set_agent("Task Orchestration Manager")
+
         agents_dict = self._create_crewai_agents()
         manager_task = self._create_manager_task(task, context_str)
 
@@ -372,15 +380,6 @@ IMPORTANT:
             verbose=False,
         )
 
-        dashboard.add_log_entry(
-            ActionType.EXECUTE,
-            "Starting hierarchical execution with manager delegation",
-            status="pending",
-        )
-        dashboard.set_agent("Task Orchestration Manager")
-
-        print_info("Executing with hierarchical manager delegation...")
-
         loop = asyncio.get_event_loop()
         try:
             result = await loop.run_in_executor(None, self.crew.kickoff)
@@ -388,37 +387,18 @@ IMPORTANT:
             return TaskExecutionResult(
                 task=task, result=str(result), overall_success=True
             )
-        except asyncio.CancelledError:
-            print_failure("Task cancelled by user")
-            return TaskExecutionResult(
-                task=task,
-                result=None,
-                overall_success=False,
-                error="Task cancelled by user (ESC pressed)",
-            )
-        except KeyboardInterrupt:
-            print_failure("Task cancelled by user")
-            return TaskExecutionResult(
-                task=task,
-                result=None,
-                overall_success=False,
-                error="Task cancelled by user (ESC pressed)",
-            )
         except Exception as exc:
-            error_msg = str(exc)
-            if "cancelled" in error_msg.lower():
+            if self._cancellation_requested:
                 print_failure("Task cancelled by user")
                 return TaskExecutionResult(
                     task=task,
                     result=None,
                     overall_success=False,
-                    error="Task cancelled by user (ESC pressed)",
+                    error="Task cancelled by user",
                 )
             print_failure(f"Execution failed: {exc}")
             return TaskExecutionResult(
-                task=task,
-                overall_success=False,
-                error=error_msg,
+                task=task, overall_success=False, error=str(exc)
             )
 
     async def execute_task(
