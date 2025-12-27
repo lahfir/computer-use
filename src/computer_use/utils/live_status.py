@@ -1,8 +1,8 @@
 """
-Live status module - consolidated into ui.py.
+Live status module - re-exports from the new ui package.
 
-This module re-exports components from ui.py for backwards compatibility.
-All live status functionality is now part of the main DashboardManager in ui.py.
+This module provides backwards compatibility for code using LiveStatus.
+All live status functionality is now part of the DashboardManager in ui/.
 """
 
 from .ui import (
@@ -19,7 +19,7 @@ class LiveStatus(DashboardManager):
     Backwards-compatible alias for DashboardManager.
 
     .. deprecated::
-        Use DashboardManager from ui.py instead.
+        Use DashboardManager from ui package instead.
     """
 
     pass

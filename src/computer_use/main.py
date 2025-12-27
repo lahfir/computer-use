@@ -3,9 +3,38 @@ Main entry point for computer use automation agent.
 """
 
 import asyncio
+import os
 import sys
+import warnings
 
-from .utils.logging_config import setup_logging
+os.environ["GRPC_VERBOSITY"] = "ERROR"
+os.environ["GLOG_minloglevel"] = "2"
+
+warnings.filterwarnings("ignore", message=".*GOOGLE_API_KEY.*")
+warnings.filterwarnings("ignore", message=".*GEMINI_API_KEY.*")
+warnings.filterwarnings("ignore", message=".*anonymized telemetry.*")
+
+_original_stderr = sys.stderr
+
+
+class _SuppressStartupWarnings:
+    """Suppress noisy startup warnings."""
+
+    def write(self, msg):
+        if any(
+            x in msg
+            for x in ["GOOGLE_API_KEY", "GEMINI_API_KEY", "anonymized telemetry"]
+        ):
+            return
+        _original_stderr.write(msg)
+
+    def flush(self):
+        _original_stderr.flush()
+
+
+sys.stderr = _SuppressStartupWarnings()
+
+from .utils.logging_config import setup_logging  # noqa: E402
 
 setup_logging(verbose=False)
 
@@ -29,7 +58,9 @@ from .utils.ui import (  # noqa: E402
     startup_spinner,
     THEME,
 )
-from rich.text import Text
+from rich.text import Text  # noqa: E402
+
+sys.stderr = _original_stderr
 
 
 async def main(

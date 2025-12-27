@@ -4,13 +4,37 @@ Supports Langchain LLMs for CrewAI agents and Browser-Use LLMs for web automatio
 """
 
 import os
+import sys
+import warnings
 from typing import Optional
-from dotenv import load_dotenv
-from crewai import LLM
 
-from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
-from langchain_google_genai import ChatGoogleGenerativeAI
+warnings.filterwarnings("ignore", message=".*GOOGLE_API_KEY.*")
+warnings.filterwarnings("ignore", message=".*GEMINI_API_KEY.*")
+
+_original_stderr = sys.stderr
+
+
+class _SuppressGoogleWarnings:
+    """Suppress Google API key warnings written to stderr."""
+
+    def write(self, msg):
+        if "GOOGLE_API_KEY" not in msg and "GEMINI_API_KEY" not in msg:
+            _original_stderr.write(msg)
+
+    def flush(self):
+        _original_stderr.flush()
+
+
+sys.stderr = _SuppressGoogleWarnings()
+
+from dotenv import load_dotenv  # noqa: E402
+from crewai import LLM  # noqa: E402
+
+from langchain_openai import ChatOpenAI  # noqa: E402
+from langchain_anthropic import ChatAnthropic  # noqa: E402
+from langchain_google_genai import ChatGoogleGenerativeAI  # noqa: E402
+
+sys.stderr = _original_stderr
 
 load_dotenv()
 

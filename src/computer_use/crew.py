@@ -1,7 +1,6 @@
 """CrewAI-based multi-agent computer automation system with hierarchical delegation."""
 
 import asyncio
-import os
 import platform
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -39,6 +38,14 @@ from .utils.ui import (
     print_success,
 )
 from .services.crew_gui_delegate import CrewGuiDelegate
+
+AGENT_DISPLAY_NAMES = {
+    "Task Orchestration Manager": "Manager",
+    "Web Automation Specialist": "Browser Agent",
+    "Desktop Application Automation Expert": "GUI Agent",
+    "System Command & Terminal Expert": "System Agent",
+    "Code Automation Specialist": "Coding Agent",
+}
 
 
 class ComputerUseCrew:
@@ -204,16 +211,18 @@ class ComputerUseCrew:
         Args:
             agent_role: The role/name of the agent for dashboard display
         """
+        display_name = AGENT_DISPLAY_NAMES.get(agent_role.strip(), agent_role)
 
         def step_callback(step_output):
             if self.is_cancelled():
                 raise KeyboardInterrupt("Task cancelled by user")
 
-            dashboard.set_agent(agent_role)
+            dashboard.set_agent(display_name)
 
             steps = step_output if isinstance(step_output, list) else [step_output]
             for step in steps:
                 thought = None
+
                 if hasattr(step, "thought") and step.thought:
                     thought = step.thought.strip()
                 elif hasattr(step, "text") and step.text:
@@ -222,20 +231,48 @@ class ComputerUseCrew:
                         thought = text.split("\nAction:")[0].strip()
                     elif "\nFinal Answer:" in text:
                         thought = text.split("\nFinal Answer:")[0].strip()
-                    else:
+                    elif not text.startswith(":") and len(text) > 20:
                         thought = text
 
                 if thought:
                     thought = thought.replace("Thought:", "").strip()
-                    dashboard.set_thinking(thought)
+                    if self._is_valid_reasoning(thought):
+                        dashboard.set_thinking(thought)
 
                 if hasattr(step, "tool") and hasattr(step, "tool_input"):
                     dashboard.log_tool_start(step.tool, step.tool_input)
 
             self._update_token_usage()
-            dashboard.set_action("Thinking", "planning next action...")
 
         return step_callback
+
+    def _is_valid_reasoning(self, text: str) -> bool:
+        """
+        Check if text is valid reasoning vs tool output/junk.
+
+        Args:
+            text: Text to validate
+
+        Returns:
+            True if valid reasoning
+        """
+        if not text or len(text) < 10:
+            return False
+
+        invalid_patterns = [
+            ": True",
+            ": False",
+            ": None",
+            "success=",
+            "error=",
+            '{"',
+            "{'",
+        ]
+        for pattern in invalid_patterns:
+            if text.startswith(pattern) or text == pattern.strip(": "):
+                return False
+
+        return True
 
     def _update_token_usage(self) -> None:
         """Update dashboard with current token usage from all agents."""
@@ -397,9 +434,7 @@ IMPORTANT:
                     error="Task cancelled by user",
                 )
             print_failure(f"Execution failed: {exc}")
-            return TaskExecutionResult(
-                task=task, overall_success=False, error=str(exc)
-            )
+            return TaskExecutionResult(task=task, overall_success=False, error=str(exc))
 
     async def execute_task(
         self,
