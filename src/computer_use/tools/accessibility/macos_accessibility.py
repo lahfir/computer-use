@@ -311,10 +311,17 @@ class MacOSAccessibility:
             "AXLink",
             "AXMenuItem",
             "AXMenuButton",
+            "AXMenuBarItem",
             "AXTab",
             "AXCell",
             "AXImage",
             "AXStaticText",
+            "AXGroup",
+            "AXRow",
+            "AXToolbar",
+            "AXDisclosureTriangle",
+            "AXColorWell",
+            "AXValueIndicator",
         }
     )
 
@@ -358,23 +365,33 @@ class MacOSAccessibility:
                 return True
 
             is_known_interactive = role in self._INTERACTIVE_ROLES
-            if interactive_only and is_known_interactive:
-                info = self._extract_element_info(node, role, True, True)
-                if info:
-                    elements.append(info)
-                    if len(elements) >= self._max_elements:
-                        return False
-            elif not interactive_only or is_known_interactive:
-                has_actions = bool(getattr(node, "AXActions", None))
-                is_enabled = bool(getattr(node, "AXEnabled", False))
-                if not interactive_only or has_actions or is_enabled:
-                    info = self._extract_element_info(
-                        node, role, has_actions, is_enabled
-                    )
+
+            if interactive_only:
+                if is_known_interactive:
+                    info = self._extract_element_info(node, role, True, True)
                     if info:
                         elements.append(info)
                         if len(elements) >= self._max_elements:
                             return False
+                else:
+                    has_actions = bool(getattr(node, "AXActions", None))
+                    is_enabled = bool(getattr(node, "AXEnabled", False))
+                    if has_actions or is_enabled:
+                        info = self._extract_element_info(
+                            node, role, has_actions, is_enabled
+                        )
+                        if info:
+                            elements.append(info)
+                            if len(elements) >= self._max_elements:
+                                return False
+            else:
+                has_actions = bool(getattr(node, "AXActions", None))
+                is_enabled = bool(getattr(node, "AXEnabled", False))
+                info = self._extract_element_info(node, role, has_actions, is_enabled)
+                if info:
+                    elements.append(info)
+                    if len(elements) >= self._max_elements:
+                        return False
 
             children = getattr(node, "AXChildren", None)
             if children:
