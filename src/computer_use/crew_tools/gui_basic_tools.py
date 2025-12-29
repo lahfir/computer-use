@@ -672,31 +672,32 @@ class GetAccessibleElementsTool(InstrumentedBaseTool):
             dashboard.set_action("Scanning", f"{app_name} UI")
             elements = []
             with action_spinner("Scanning", f"{app_name} UI"):
-                if hasattr(accessibility_tool, "invalidate_cache"):
-                    accessibility_tool.invalidate_cache()
-
-                if hasattr(accessibility_tool, "get_all_ui_elements"):
-                    categorized = accessibility_tool.get_all_ui_elements(app_name)
-                    all_elements = []
-                    for category, items in categorized.items():
-                        all_elements.extend(items)
-
-                    if not all_elements:
-                        elements = accessibility_tool.get_all_interactive_elements(
-                            app_name
-                        )
-                    else:
-                        elements = all_elements
-                else:
-                    elements = accessibility_tool.get_all_interactive_elements(app_name)
+                elements = accessibility_tool.get_elements(
+                    app_name, interactive_only=True, use_cache=False
+                )
 
             if not elements:
                 app_ref = accessibility_tool.get_app(app_name)
-                windows = accessibility_tool.get_windows(app_ref) if app_ref else []
-                debug_info = f"app_found={app_ref is not None}, windows={len(windows)}"
+                windows = []
+                window_info = []
+                if app_ref:
+                    windows = accessibility_tool.get_windows(app_ref)
+                    for w in windows[:3]:
+                        try:
+                            title = getattr(w, "AXTitle", None) or "untitled"
+                            role = getattr(w, "AXRole", None) or "unknown"
+                            window_info.append(f"{role}:{title}")
+                        except Exception:
+                            window_info.append("error")
+
+                debug_info = (
+                    f"app_found={app_ref is not None}, "
+                    f"windows={len(windows)}, "
+                    f"window_details={window_info}"
+                )
                 return ActionResult(
                     success=True,
-                    action_taken=f"No interactive elements found in {app_name}. Debug: {debug_info}. Verify if the application is correctly focused or if it contains any UI.",
+                    action_taken=f"No interactive elements found in {app_name}. Debug: {debug_info}. Try focusing the app first or check if it has accessibility support.",
                     method_used="accessibility",
                     confidence=1.0,
                     data={"elements": [], "count": 0, "debug": debug_info},

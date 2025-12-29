@@ -253,54 +253,89 @@ class ComputerUseCrew:
 
     def _is_valid_reasoning(self, text: str) -> bool:
         """
-        Check if text is valid reasoning vs tool output/junk.
+        Check if text is valid reasoning vs tool output/junk/verbose prompts.
 
         Args:
             text: Text to validate
 
         Returns:
-            True if valid reasoning
+            True if valid reasoning worth displaying
         """
         if not text or len(text) < 10:
             return False
 
-        invalid_patterns = [
-            ": True",
-            ": False",
-            ": None",
+        text_lower = text.lower()
+
+        invalid_starts = [
+            ": true",
+            ": false",
+            ": none",
+            "true",
+            "false",
+            "none",
             "success=",
             "error=",
             '{"',
             "{'",
+            "action:",
+            "thought:",
         ]
-        for pattern in invalid_patterns:
-            if text.startswith(pattern) or text == pattern.strip(": "):
+        for pattern in invalid_starts:
+            if text_lower.startswith(pattern):
                 return False
+
+        invalid_contains = [
+            "delegate work to coworker",
+            "Specialist",
+            "Expert",
+        ]
+        for pattern in invalid_contains:
+            if pattern.lower() in text_lower:
+                return False
+
+        if len(text) > 300:
+            return False
 
         return True
 
     def _update_token_usage(self) -> None:
-        """Update dashboard with current token usage from all agents."""
+        """Update dashboard with current token usage using CrewAI's built-in metrics."""
         if not hasattr(self, "crew") or not self.crew:
             return
 
         try:
-            total_input = 0
-            total_output = 0
-
-            all_agents = list(self.crew.agents) if self.crew.agents else []
-            if hasattr(self.crew, "manager_agent") and self.crew.manager_agent:
-                all_agents.append(self.crew.manager_agent)
-
-            for agent in all_agents:
-                if hasattr(agent, "llm") and hasattr(agent.llm, "_token_usage"):
-                    usage = agent.llm._token_usage
-                    total_input += usage.get("prompt_tokens", 0)
-                    total_output += usage.get("completion_tokens", 0)
-
-            dashboard.update_token_usage(total_input, total_output)
+            metrics = self.crew.calculate_usage_metrics()
+            if metrics.prompt_tokens > 0 or metrics.completion_tokens > 0:
+                dashboard.update_token_usage(
+                    metrics.prompt_tokens,
+                    metrics.completion_tokens,
+                )
         except Exception:
-            pass
+            try:
+                total_prompt = 0
+                total_completion = 0
+                for agent in self.crew.agents:
+                    if hasattr(agent, "llm") and hasattr(agent.llm, "_token_usage"):
+                        usage = agent.llm._token_usage
+                        total_prompt += usage.get("prompt_tokens", 0)
+                        total_completion += usage.get("completion_tokens", 0)
+                if total_prompt > 0 or total_completion > 0:
+                    dashboard.update_token_usage(total_prompt, total_completion)
+            except Exception:
+                pass
+            try:
+                total_prompt = 0
+                total_completion = 0
+                if hasattr(self.crew, "manager_agent") and self.crew.manager_agent:
+                    mgr = self.crew.manager_agent
+                    if hasattr(mgr, "llm") and hasattr(mgr.llm, "_token_usage"):
+                        usage = mgr.llm._token_usage
+                        total_prompt += usage.get("prompt_tokens", 0)
+                        total_completion += usage.get("completion_tokens", 0)
+                if total_prompt > 0 or total_completion > 0:
+                    dashboard.update_token_usage(total_prompt, total_completion)
+            except Exception:
+                pass
 
     def _create_agent(
         self,
@@ -425,6 +460,17 @@ IMPORTANT:
         loop = asyncio.get_event_loop()
         try:
             result = await loop.run_in_executor(None, self.crew.kickoff)
+
+            if hasattr(result, "token_usage") and result.token_usage:
+                tu = result.token_usage
+                if isinstance(tu, dict):
+                    prompt = tu.get("prompt_tokens", 0)
+                    completion = tu.get("completion_tokens", 0)
+                else:
+                    prompt = getattr(tu, "prompt_tokens", 0)
+                    completion = getattr(tu, "completion_tokens", 0)
+                dashboard.update_token_usage(prompt, completion)
+
             print_success("Execution completed")
             return TaskExecutionResult(
                 task=task, result=str(result), overall_success=True

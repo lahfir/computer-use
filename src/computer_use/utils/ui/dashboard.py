@@ -12,6 +12,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Set
 
 from rich.console import Console
+from rich.status import Status
 from rich.text import Text
 
 from .state import TaskState, AgentState, ToolState, VerbosityLevel, ActionType
@@ -120,9 +121,10 @@ class DashboardManager:
         # Tool history for explorer
         self._tool_history: List[Dict[str, Any]] = []
 
-        # Status bar timer
+        # Rich Status for animated spinner between actions
+        self._status: Optional[Status] = None
+        self._current_status_text: str = ""
         self._status_timer: Optional[threading.Timer] = None
-        self._last_status_update: float = 0
 
     def _flush(self) -> None:
         """Force flush output to terminal immediately."""
@@ -130,12 +132,18 @@ class DashboardManager:
         sys.stderr.flush()
 
     def _print(self, text: Text) -> None:
-        """Print with immediate flush."""
+        """Print with immediate flush, pausing status spinner."""
+        if self._status:
+            self._status.stop()
+            self._status = None
         self.console.print(text)
         self._flush()
 
     def _print_raw(self, content: str) -> None:
-        """Print raw string with immediate flush."""
+        """Print raw string with immediate flush, pausing status spinner."""
+        if self._status:
+            self._status.stop()
+            self._status = None
         self.console.print(content)
         self._flush()
 
@@ -218,6 +226,7 @@ class DashboardManager:
         if agent.agent_id not in self._printed_agents:
             self._printed_agents.add(agent.agent_id)
             self._print_agent_header(agent)
+            self._show_status(f"{agent_name} analyzing...")
 
     def set_thinking(self, thought: str) -> None:
         """Set current agent's thinking/reasoning. Shows FULL text."""
@@ -240,6 +249,8 @@ class DashboardManager:
             agent.current_thought = thought
             agent.status = "thinking"
             self._print_thought_full(thought)
+            short_thought = thought[:60] + "..." if len(thought) > 60 else thought
+            self._show_status(short_thought)
 
     def set_action(self, action: str, target: Optional[str] = None) -> None:
         """Set current action description."""
@@ -399,7 +410,7 @@ class DashboardManager:
         self._print(thought_line)
 
     def _print_tool_start(self, tool: ToolState) -> None:
-        """Print tool start using the ToolRenderer."""
+        """Print tool start using the ToolRenderer, then show waiting status."""
         if tool.tool_id in self._printed_tools:
             return
 
@@ -420,6 +431,8 @@ class DashboardManager:
         if tool.input_data:
             input_line = self._tool_renderer._render_input(tool.input_data)
             self._print(input_line)
+
+        self._show_status(f"Running {tool.name}...")
 
     def _get_action_description(self, tool_name: str, input_data: Dict) -> str:
         """Generate human-readable action description."""
@@ -460,55 +473,103 @@ class DashboardManager:
         return ""
 
     def _print_tool_complete(self, tool: ToolState) -> None:
-        """Print tool completion using ToolRenderer."""
+        """Print tool completion using ToolRenderer, then show processing status."""
         if tool.status == "success":
             output_line = self._tool_renderer._render_output(tool.output_data)
             duration_text = Text()
             duration_text.append(f" ({tool.duration:.2f}s)", style=THEME["muted"])
             output_line.append_text(duration_text)
             self._print(output_line)
+            self._show_status("Processing results...")
         else:
             error_line = self._tool_renderer._render_error(
                 tool.error or "Unknown error"
             )
             self._print(error_line)
+            self._show_status("Handling error...")
 
     # ─────────────────────────────────────────────────────────────────────
-    # Live status bar (timer-based real-time updates)
+    # Live status with Rich spinner (inline, not sticky)
     # ─────────────────────────────────────────────────────────────────────
 
     def _start_live_status(self) -> None:
-        """Start the periodic status bar updates."""
-        self._schedule_status_update()
+        """Start the Rich Status spinner with initial message."""
+        self._show_status("Initializing...")
 
     def _stop_live_status(self) -> None:
-        """Stop the periodic status bar updates and clear the sticky footer."""
+        """Stop and clear any active status spinner."""
+        self._stop_status_timer()
+        if self._status:
+            self._status.stop()
+            self._status = None
+
+    def _start_status_timer(self) -> None:
+        """Start timer to refresh status bar every second."""
+        self._stop_status_timer()
+        if self._is_running and self._status:
+
+            def refresh() -> None:
+                if self._status and self._is_running:
+                    self._status.update(self._build_status_line())
+                    self._start_status_timer()
+
+            self._status_timer = threading.Timer(1.0, refresh)
+            self._status_timer.daemon = True
+            self._status_timer.start()
+
+    def _stop_status_timer(self) -> None:
+        """Stop the status refresh timer."""
         if self._status_timer:
             self._status_timer.cancel()
             self._status_timer = None
-        sys.stdout.write("\033[s")
-        sys.stdout.write("\033[999;1H")
-        sys.stdout.write("\033[K")
-        sys.stdout.write("\033[u")
-        self._flush()
 
-    def _schedule_status_update(self) -> None:
-        """Schedule the next status bar update."""
-        if not self._is_running:
-            return
-        self._status_timer = threading.Timer(1.0, self._tick_status)
-        self._status_timer.daemon = True
-        self._status_timer.start()
+    def _show_status(self, message: str = "") -> None:
+        """Show animated status with Rich spinner inline using fresh console."""
+        status_text = self._build_status_line()
+        if self._status:
+            self._status.update(status_text)
+        else:
+            self.console.print()
+            fresh_console = Console(force_terminal=True)
+            self._status = Status(
+                status_text,
+                spinner="dots",
+                spinner_style=THEME["agent_active"],
+                console=fresh_console,
+                refresh_per_second=4,
+            )
+            self._status.start()
+            self._start_status_timer()
 
-    def _tick_status(self) -> None:
-        """Update status bar on timer tick."""
-        if not self._is_running or not self._task:
-            return
-        self._print_live_status_bar()
-        self._schedule_status_update()
+    def _build_status_line(self, message: str = "") -> str:
+        """
+        Build clean status line matching TASK header style.
 
-    def _print_live_status_bar(self) -> None:
-        """Print sticky status bar at the bottom of terminal."""
+        Format: Agent Name  │  elapsed  │  tokens
+        """
+        if not self._task:
+            return ""
+
+        elapsed = time.time() - self._task.start_time
+        if elapsed < 60:
+            time_str = f"{int(elapsed)}s"
+        else:
+            time_str = f"{int(elapsed // 60)}m {int(elapsed % 60)}s"
+
+        tokens_in = self._task.token_input
+        tokens_out = self._task.token_output
+
+        agent_name = self._current_agent_name or "Agent"
+
+        return (
+            f"  [{THEME['agent_active']}]{agent_name}[/]  │  "
+            f"[{THEME['muted']}]{time_str}[/]  │  "
+            f"[{THEME['muted']}]{tokens_in}[/][dim]↑[/] "
+            f"[{THEME['muted']}]{tokens_out}[/][dim]↓[/]"
+        )
+
+    def _print_status_bar(self) -> None:
+        """Print inline status bar (matches TASK header style)."""
         if not self._task:
             return
 
@@ -538,26 +599,27 @@ class DashboardManager:
             for t in a.tools
             if t.status != "pending"
         )
-        global_tools = f"{global_done}/{total_tools}"
 
-        spinner = "|/-\\"
-        spinner_char = spinner[int(elapsed) % len(spinner)]
-
-        status_line = (
-            f"  [{spinner_char}] {agent_name} [{agent_tools}] │ "
-            f"t:{time_str} │ all:{global_tools} │ "
-            f"tok:{tokens_in}↑{tokens_out}↓"
+        bar = Text()
+        bar.append(
+            "  ─────────────────────────────────────────────────────────────────\n",
+            style=THEME["border"],
+        )
+        bar.append(f"  {agent_name} ", style=f"bold {THEME['agent_active']}")
+        bar.append(f"[{agent_tools}]", style=THEME["muted"])
+        bar.append(" │ ", style=THEME["border"])
+        bar.append(f"t:{time_str}", style=THEME["muted"])
+        bar.append(" │ ", style=THEME["border"])
+        bar.append(f"tools:{global_done}/{total_tools}", style=THEME["muted"])
+        bar.append(" │ ", style=THEME["border"])
+        bar.append(f"tok:{tokens_in}↑{tokens_out}↓", style=THEME["muted"])
+        bar.append(
+            "\n  ─────────────────────────────────────────────────────────────────",
+            style=THEME["border"],
         )
 
-        sys.stdout.write("\033[s")
-        sys.stdout.write("\033[999;1H")
-        sys.stdout.write(f"\033[K\033[7m{status_line}\033[0m")
-        sys.stdout.write("\033[u")
+        self.console.print(bar)
         self._flush()
-
-    def _update_live_status(self, message: str = None) -> None:
-        """Update the status message."""
-        pass
 
     def _build_status_message(self) -> str:
         """Build the current status message for the spinner."""

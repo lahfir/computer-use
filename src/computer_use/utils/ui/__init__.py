@@ -38,6 +38,7 @@ from .prompts import (
     print_ready as _print_ready,
     startup_spinner as _startup_spinner,
     get_task_input as _get_task_input,
+    get_voice_input as _get_voice_input,
     prompt_human_assistance as _prompt_human_assistance,
     print_command_approval as _print_command_approval,
     print_task_result as _print_task_result,
@@ -98,6 +99,11 @@ def startup_spinner(message: str):
 async def get_task_input(start_with_voice: bool = False):
     """Get task input from user using singleton console."""
     return await _get_task_input(console, start_with_voice)
+
+
+async def get_voice_input():
+    """Get voice input from user using singleton console."""
+    return await _get_voice_input(console)
 
 
 def prompt_human_assistance(reason: str, instructions: str) -> HumanAssistanceResult:
@@ -186,6 +192,7 @@ __all__ = [
     "print_ready",
     "startup_spinner",
     "get_task_input",
+    "get_voice_input",
     "prompt_human_assistance",
     "print_command_approval",
     "print_task_result",

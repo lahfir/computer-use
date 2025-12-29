@@ -121,6 +121,7 @@ def _create_image_tools(api_key: str) -> Tools:
             output_path = _get_image_slot_path(slot)
             slug = _slugify(prompt)
 
+            text_response = None
             for part in response.parts:
                 if part.inline_data is not None:
                     image = part.as_image()
@@ -136,10 +137,13 @@ def _create_image_tools(api_key: str) -> Tools:
                         long_term_memory=f"Generated image ({slug}) at: {output_path}",
                     )
                 elif part.text is not None:
-                    return ActionResult(
-                        extracted_content=f"Image generation returned text instead of image: {part.text}",
-                        error="No image in response",
-                    )
+                    text_response = part.text
+
+            if text_response:
+                return ActionResult(
+                    extracted_content=f"Image generation returned text instead of image: {text_response}",
+                    error="No image in response",
+                )
 
             return ActionResult(
                 extracted_content="ERROR: No image data in response from Gemini",

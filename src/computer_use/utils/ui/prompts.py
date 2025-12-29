@@ -3,6 +3,7 @@ Prompts module: task input and human assistance dialogs.
 """
 
 import asyncio
+import logging
 from contextlib import contextmanager
 from enum import Enum
 from typing import Optional
@@ -11,11 +12,12 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from rich.console import Console
-from rich.live import Live
-from rich.spinner import Spinner
+from rich.status import Status
 
 from .theme import THEME, ICONS
 from .state import VerbosityLevel, ActionType
+
+logger = logging.getLogger(__name__)
 
 
 # Key bindings for prompt
@@ -163,26 +165,136 @@ def print_ready(console: Console) -> None:
 
 @contextmanager
 def startup_spinner(console: Console, message: str):
-    """Context manager for startup tasks with animated spinner."""
-    from rich.text import Text
+    """Context manager for startup tasks with animated spinner using fresh console."""
+    from rich.console import Console as FreshConsole
 
-    spinner_text = Text()
-    spinner_text.append("    ")
-    spinner_text.append(message, style=THEME["text"])
+    fresh_console = FreshConsole(force_terminal=True)
+    status = Status(
+        f"    {message}",
+        spinner="dots",
+        spinner_style=THEME["tool_pending"],
+        console=fresh_console,
+        refresh_per_second=20,
+    )
+    status.start()
+    try:
+        yield
+    finally:
+        status.stop()
 
-    spinner = Spinner("dots", text=spinner_text, style=THEME["tool_pending"])
+
+async def get_voice_input(console: Console) -> Optional[str]:
+    """
+    Capture voice input using the VoiceInputService.
+
+    Returns:
+        Transcribed text or None if voice input failed or was cancelled
+    """
+    try:
+        from computer_use.services.voice_input_service import VoiceInputService
+        from computer_use.services.audio_capture import AudioCapture
+    except ImportError as e:
+        logger.error(f"Voice input dependencies not available: {e}")
+        console.print(
+            f"  [{THEME['error']}]Voice input unavailable: missing dependencies[/]"
+        )
+        return None
+
+    if not VoiceInputService.check_api_key_configured():
+        console.print(f"  [{THEME['warning']}]Voice input requires DEEPGRAM_API_KEY[/]")
+        return None
+
+    if not AudioCapture.check_microphone_available():
+        console.print(f"  [{THEME['warning']}]No microphone available[/]")
+        return None
 
     try:
-        with Live(spinner, console=console, refresh_per_second=12, transient=True):
-            yield
-    except Exception:
-        raise
+        service = VoiceInputService()
+    except ValueError as e:
+        console.print(f"  [{THEME['error']}]Voice service error: {e}[/]")
+        return None
+
+    interim_text = {"value": ""}
+    status_line = {"ref": None}
+
+    def on_interim(text: str):
+        """Update the interim transcription display."""
+        interim_text["value"] = text
+        if status_line["ref"]:
+            status_line["ref"].update(
+                f"    [{THEME['muted']}]🎤[/] [{THEME['text']}]{text}[/]"
+            )
+
+    console.print(
+        f"  [{THEME['tool_pending']}]🎤 Listening... (press Enter to stop)[/]"
+    )
+
+    status = Status(
+        f"    [{THEME['muted']}]Waiting for speech...[/]",
+        spinner="dots",
+        spinner_style=THEME["tool_pending"],
+        console=console,
+    )
+    status_line["ref"] = status
+    status.start()
+
+    success = await service.start_transcription(interim_callback=on_interim)
+
+    if not success:
+        status.stop()
+        error = service.get_error()
+        console.print(f"  [{THEME['error']}]Failed to start voice input: {error}[/]")
+        return None
+
+    loop = asyncio.get_event_loop()
+    stop_event = asyncio.Event()
+
+    def wait_for_enter():
+        """Wait for Enter key in a thread."""
+        try:
+            input()
+            loop.call_soon_threadsafe(stop_event.set)
+        except (EOFError, KeyboardInterrupt):
+            loop.call_soon_threadsafe(stop_event.set)
+
+    loop.run_in_executor(None, wait_for_enter)
+
+    await stop_event.wait()
+
+    status.stop()
+    result = await service.stop_transcription()
+
+    if result:
+        console.print(f"  [{THEME['tool_success']}]✓[/] [{THEME['text']}]{result}[/]")
+    else:
+        console.print(f"  [{THEME['muted']}]No speech detected[/]")
+
+    return result if result else None
 
 
 async def get_task_input(
     console: Console, start_with_voice: bool = False
 ) -> Optional[str]:
-    """Get task input from user."""
+    """
+    Get task input from user via text or voice.
+
+    Args:
+        console: Rich console for output
+        start_with_voice: If True, start with voice input mode
+
+    Returns:
+        User input text or None if cancelled
+    """
+    use_voice = start_with_voice or _voice_mode_enabled["value"]
+
+    if use_voice:
+        console.print(f"[{THEME['text']}]What would you like me to do?[/]")
+        result = await get_voice_input(console)
+        if result:
+            _voice_mode_enabled["value"] = False
+            return result
+        console.print(f"  [{THEME['muted']}]Falling back to text input...[/]")
+
     try:
         console.print(f"[{THEME['text']}]What would you like me to do?[/]")
 
@@ -245,14 +357,14 @@ def prompt_human_assistance(
 
 
 def print_command_approval(console: Console, command: str) -> str:
-    """Display command approval dialog."""
+    """Display command approval dialog with full command."""
     console.print()
     console.print(f"[bold {THEME['warning']}]{'─' * 50}[/]")
     console.print(f"[bold {THEME['warning']}]⚠ COMMAND REQUIRES APPROVAL[/]")
     console.print()
 
-    cmd_display = command[:80] + "..." if len(command) > 80 else command
-    console.print(f"[{THEME['muted']}]Command:[/] [{THEME['warning']}]{cmd_display}[/]")
+    console.print(f"[{THEME['muted']}]Command:[/]")
+    console.print(f"  [{THEME['warning']}]{command}[/]")
 
     console.print()
     console.print(
@@ -280,7 +392,10 @@ def print_command_approval(console: Console, command: str) -> str:
 
 
 def print_task_result(console: Console, result) -> None:
-    """Display the final task result."""
+    """Display the final task result with nice formatting."""
+    from rich.markdown import Markdown
+    from rich.padding import Padding
+
     console.print()
 
     success = (hasattr(result, "overall_success") and result.overall_success) or (
@@ -292,14 +407,11 @@ def print_task_result(console: Console, result) -> None:
         console.print()
 
         if hasattr(result, "result") and result.result:
-            wrapped = (
-                result.result[:200] + "..."
-                if len(result.result) > 200
-                else result.result
-            )
-            console.print(f"  [{THEME['text']}]{wrapped}[/]")
+            md = Markdown(result.result)
+            console.print(Padding(md, (0, 2)))
 
         if hasattr(result, "final_value") and result.final_value:
+            console.print()
             console.print(f"  [{THEME['text']}]Result: {result.final_value}[/]")
     else:
         console.print(f"[bold {THEME['error']}]{ICONS['error']} Failed[/]")
