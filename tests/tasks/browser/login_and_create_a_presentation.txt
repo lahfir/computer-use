@@ -1,0 +1,5 @@
+Do an intensive research about Capybara. Login to this google account and create a google slides presentation about them, use the inbuilt image generation tool to generate images for the presentation. All in a single browser agent and task.
+
+Credentials:
+Email: dream4billions@gmail.com
+Password: dream4billions@262001

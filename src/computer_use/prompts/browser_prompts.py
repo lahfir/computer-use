@@ -43,41 +43,54 @@ DO NOT expect step-by-step instructions. USE YOUR INTELLIGENCE to accomplish goa
 
 def get_text_input_rules() -> str:
     """
-    Get text input handling rules - focus first, paste instead of type.
+    Get text input handling rules for different editor types.
 
     Returns:
         Text input behavior rules
     """
     return f"""
 {SECTION_DIVIDER}
-TEXT INPUT BEHAVIOR
+TEXT INPUT RULES
 {SECTION_DIVIDER}
 
-MANDATORY PROTOCOL FOR ALL TEXT INPUT OPERATIONS:
+THREE METHODS - Choose based on editor type:
 
-1. FOCUS FIRST
-   Before entering any text, ensure the input field is active:
-   - Click on the input field to focus it
-   - Verify the cursor is blinking in the field
-   - Wait briefly for the field to be ready
+1. paste_text(index, text) - For standard form inputs (INSTANT)
+   Use for: Login fields, search boxes, textareas, standard forms
+   Example: paste_text(index=5, text="user@email.com")
 
-2. PASTE INSTEAD OF TYPE
-   For any text longer than a few characters:
-   - Use paste/fill operations instead of character-by-character typing
-   - This is faster and more reliable
-   - Avoids issues with slow typing, missed characters, or input lag
+2. type_to_focused(text) - For canvas-based editors (INSTANT)
+   Use for: Google Docs, Notion, Figma, any canvas editor
+   REQUIRES: Click the canvas FIRST to focus the hidden input
+   Example:
+     click(index=42)  # Click the canvas/editor area
+     type_to_focused(text="Your content here")
 
-3. VERIFICATION
-   After entering text:
-   - Verify the text appears correctly in the field
-   - Check for any validation errors or format issues
-   - Re-enter if the content is incorrect or truncated
+3. input(index, text) - LAST RESORT only (SLOW, types char-by-char)
+   Only use if paste_text AND type_to_focused both fail
+   Has 15s timeout - keep content under 300 chars
 
-RATIONALE:
-  - Typing character-by-character is slow and error-prone
-  - Some sites have input handlers that interfere with typing
-  - Pasting ensures the complete text is entered atomically
-  - Focus verification prevents text from going to wrong elements
+FOR CANVAS EDITORS (Google Docs, Notion, etc.):
+  Canvas editors use a hidden <input> to capture keystrokes.
+  The canvas itself just renders text - it doesn't accept input.
+  
+  WORKFLOW:
+  1. CLICK the canvas/editor area (this focuses the hidden input)
+     - Google Docs: Look for 'kix-canvas-tile-content' canvas
+  2. WAIT 1-2 seconds for focus
+  3. Call type_to_focused(text="ALL your content in ONE call")
+  
+  IMPORTANT: type_to_focused handles ANY amount of text INSTANTLY.
+  DO NOT break content into chunks. Paste EVERYTHING in a single call.
+  
+  Example:
+    click(index=42)  # Focus the canvas
+    type_to_focused(text="# Research Report\\n\\nSection 1...\\n\\nSection 2...")
+
+DECISION TREE:
+  Is it a standard input/textarea? → paste_text (all content, one call)
+  Is it a canvas/rich editor? → click() then type_to_focused (all content, one call)
+  Did both fail? → input() as last resort (chunked, slow)
 """
 
 
@@ -231,11 +244,24 @@ Creates AI-generated images from text descriptions. Useful for profile pictures,
 ads, marketing materials, banners, product images, or any scenario requiring
 an image that doesn't exist yet.
 
+CRITICAL: Images do NOT exist until you call generate_image()!
+You MUST generate images BEFORE attempting to upload them.
+
+WORKFLOW:
+1. Call generate_image(prompt) with a detailed description
+2. Note the returned file path
+3. Use that exact path to upload the image
+
 FUNCTIONS:
 
 generate_image(prompt)
   Input: Text description of the desired image
-  Output: File path to the generated image
+  Output: File path to the generated image (file is created after this call)
+  IMPORTANT: Call this FIRST before trying to upload any image!
+
+list_generated_images()
+  Output: List of images that have been generated in this task
+  Use this to see what images are available for upload
 
 check_image_generation_status()
   Output: Whether image generation is available
@@ -243,6 +269,7 @@ check_image_generation_status()
 UPLOADING:
   - Web file input visible: use upload_file(index, path)
   - Native OS file picker opens: use delegate_to_gui with the file path
+  - ONLY upload files returned by generate_image() or list_generated_images()
 """
 
 

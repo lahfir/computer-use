@@ -62,7 +62,8 @@ def create_ocr_engine(use_gpu: Optional[bool] = None) -> Optional[OCREngine]:
     Returns:
         OCR engine instance with recognize_text method
     """
-    from ...utils.ui import console, THEME, dashboard, VerbosityLevel
+    from ...utils.ui import console, dashboard, VerbosityLevel
+    from ...utils.ui.theme import THEME
 
     system = platform.system().lower()
 

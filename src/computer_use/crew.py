@@ -1,7 +1,6 @@
 """CrewAI-based multi-agent computer automation system with hierarchical delegation."""
 
 import asyncio
-import os
 import platform
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -39,6 +38,14 @@ from .utils.ui import (
     print_success,
 )
 from .services.crew_gui_delegate import CrewGuiDelegate
+
+AGENT_DISPLAY_NAMES = {
+    "Task Orchestration Manager": "Manager",
+    "Web Automation Specialist": "Browser Agent",
+    "Desktop Application Automation Expert": "GUI Agent",
+    "System Command & Terminal Expert": "System Agent",
+    "Code Automation Specialist": "Coding Agent",
+}
 
 
 class ComputerUseCrew:
@@ -204,16 +211,19 @@ class ComputerUseCrew:
         Args:
             agent_role: The role/name of the agent for dashboard display
         """
+        display_name = AGENT_DISPLAY_NAMES.get(agent_role.strip(), agent_role)
+        is_manager = display_name == "Manager"
 
         def step_callback(step_output):
             if self.is_cancelled():
                 raise KeyboardInterrupt("Task cancelled by user")
 
-            dashboard.set_agent(agent_role)
+            dashboard.set_agent(display_name)
 
             steps = step_output if isinstance(step_output, list) else [step_output]
             for step in steps:
                 thought = None
+
                 if hasattr(step, "thought") and step.thought:
                     thought = step.thought.strip()
                 elif hasattr(step, "text") and step.text:
@@ -222,43 +232,110 @@ class ComputerUseCrew:
                         thought = text.split("\nAction:")[0].strip()
                     elif "\nFinal Answer:" in text:
                         thought = text.split("\nFinal Answer:")[0].strip()
-                    else:
+                    elif not text.startswith(":") and len(text) > 20:
                         thought = text
 
                 if thought:
                     thought = thought.replace("Thought:", "").strip()
-                    dashboard.set_thinking(thought)
+                    if self._is_valid_reasoning(thought):
+                        dashboard.set_thinking(thought)
 
-                if hasattr(step, "tool") and hasattr(step, "tool_input"):
+                if (
+                    not is_manager
+                    and hasattr(step, "tool")
+                    and hasattr(step, "tool_input")
+                ):
                     dashboard.log_tool_start(step.tool, step.tool_input)
 
             self._update_token_usage()
-            dashboard.set_action("Thinking", "planning next action...")
 
         return step_callback
 
+    def _is_valid_reasoning(self, text: str) -> bool:
+        """
+        Check if text is valid reasoning vs tool output/junk/verbose prompts.
+
+        Args:
+            text: Text to validate
+
+        Returns:
+            True if valid reasoning worth displaying
+        """
+        if not text or len(text) < 10:
+            return False
+
+        text_lower = text.lower()
+
+        invalid_starts = [
+            ": true",
+            ": false",
+            ": none",
+            "true",
+            "false",
+            "none",
+            "success=",
+            "error=",
+            '{"',
+            "{'",
+            "action:",
+            "thought:",
+        ]
+        for pattern in invalid_starts:
+            if text_lower.startswith(pattern):
+                return False
+
+        invalid_contains = [
+            "delegate work to coworker",
+            "Specialist",
+            "Expert",
+        ]
+        for pattern in invalid_contains:
+            if pattern.lower() in text_lower:
+                return False
+
+        if len(text) > 300:
+            return False
+
+        return True
+
     def _update_token_usage(self) -> None:
-        """Update dashboard with current token usage from all agents."""
+        """Update dashboard with current token usage using CrewAI's built-in metrics."""
         if not hasattr(self, "crew") or not self.crew:
             return
 
         try:
-            total_input = 0
-            total_output = 0
-
-            all_agents = list(self.crew.agents) if self.crew.agents else []
-            if hasattr(self.crew, "manager_agent") and self.crew.manager_agent:
-                all_agents.append(self.crew.manager_agent)
-
-            for agent in all_agents:
-                if hasattr(agent, "llm") and hasattr(agent.llm, "_token_usage"):
-                    usage = agent.llm._token_usage
-                    total_input += usage.get("prompt_tokens", 0)
-                    total_output += usage.get("completion_tokens", 0)
-
-            dashboard.update_token_usage(total_input, total_output)
+            metrics = self.crew.calculate_usage_metrics()
+            if metrics.prompt_tokens > 0 or metrics.completion_tokens > 0:
+                dashboard.update_token_usage(
+                    metrics.prompt_tokens,
+                    metrics.completion_tokens,
+                )
         except Exception:
-            pass
+            try:
+                total_prompt = 0
+                total_completion = 0
+                for agent in self.crew.agents:
+                    if hasattr(agent, "llm") and hasattr(agent.llm, "_token_usage"):
+                        usage = agent.llm._token_usage
+                        total_prompt += usage.get("prompt_tokens", 0)
+                        total_completion += usage.get("completion_tokens", 0)
+                if total_prompt > 0 or total_completion > 0:
+                    dashboard.update_token_usage(total_prompt, total_completion)
+            except Exception:
+                pass
+            try:
+                total_prompt = 0
+                total_completion = 0
+                if hasattr(self.crew, "manager_agent") and self.crew.manager_agent:
+                    mgr = self.crew.manager_agent
+                    if hasattr(mgr, "llm") and hasattr(mgr.llm, "_token_usage"):
+                        usage = mgr.llm._token_usage
+                        total_prompt += usage.get("prompt_tokens", 0)
+                        total_completion += usage.get("completion_tokens", 0)
+                if total_prompt > 0 or total_completion > 0:
+                    dashboard.update_token_usage(total_prompt, total_completion)
+            except Exception:
+                pass
 
     def _create_agent(
         self,
@@ -278,7 +355,7 @@ class ComputerUseCrew:
             "role": agent_role,
             "goal": config["goal"],
             "backstory": backstory_with_context,
-            "verbose": False,
+            "verbose": dashboard.is_verbose,
             "llm": llm,
             "max_iter": config.get("max_iter", 15),
             "allow_delegation": config.get("allow_delegation", False),
@@ -377,12 +454,23 @@ IMPORTANT:
             tasks=[manager_task],
             process=Process.hierarchical,
             manager_agent=agents_dict["manager"],
-            verbose=False,
+            verbose=dashboard.is_verbose,
         )
 
         loop = asyncio.get_event_loop()
         try:
             result = await loop.run_in_executor(None, self.crew.kickoff)
+
+            if hasattr(result, "token_usage") and result.token_usage:
+                tu = result.token_usage
+                if isinstance(tu, dict):
+                    prompt = tu.get("prompt_tokens", 0)
+                    completion = tu.get("completion_tokens", 0)
+                else:
+                    prompt = getattr(tu, "prompt_tokens", 0)
+                    completion = getattr(tu, "completion_tokens", 0)
+                dashboard.update_token_usage(prompt, completion)
+
             print_success("Execution completed")
             return TaskExecutionResult(
                 task=task, result=str(result), overall_success=True
@@ -397,9 +485,7 @@ IMPORTANT:
                     error="Task cancelled by user",
                 )
             print_failure(f"Execution failed: {exc}")
-            return TaskExecutionResult(
-                task=task, overall_success=False, error=str(exc)
-            )
+            return TaskExecutionResult(task=task, overall_success=False, error=str(exc))
 
     async def execute_task(
         self,

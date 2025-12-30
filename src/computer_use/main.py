@@ -3,9 +3,57 @@ Main entry point for computer use automation agent.
 """
 
 import asyncio
+import os
 import sys
+import warnings
 
-from .utils.logging_config import setup_logging
+os.environ["GRPC_VERBOSITY"] = "ERROR"
+os.environ["GLOG_minloglevel"] = "2"
+
+warnings.filterwarnings("ignore", message=".*GOOGLE_API_KEY.*")
+warnings.filterwarnings("ignore", message=".*GEMINI_API_KEY.*")
+warnings.filterwarnings("ignore", message=".*anonymized telemetry.*")
+
+_original_stdout = sys.stdout
+_original_stderr = sys.stderr
+
+
+class _StartupOutputFilter:
+    """
+    Unified filter for suppressing noisy startup messages.
+    Filters both stdout and stderr during imports.
+    """
+
+    SUPPRESSED_PATTERNS = [
+        "GOOGLE_API_KEY",
+        "GEMINI_API_KEY",
+        "anonymized telemetry",
+        "INFO     [",
+        "Repaired JSON",
+    ]
+
+    def __init__(self, original_stream):
+        self.original = original_stream
+
+    def write(self, msg):
+        if any(pattern in msg for pattern in self.SUPPRESSED_PATTERNS):
+            return
+        self.original.write(msg)
+
+    def flush(self):
+        self.original.flush()
+
+    def fileno(self):
+        return self.original.fileno()
+
+    def isatty(self):
+        return self.original.isatty() if hasattr(self.original, "isatty") else False
+
+
+sys.stdout = _StartupOutputFilter(_original_stdout)
+sys.stderr = _StartupOutputFilter(_original_stderr)
+
+from .utils.logging_config import setup_logging  # noqa: E402
 
 setup_logging(verbose=False)
 
@@ -29,7 +77,14 @@ from .utils.ui import (  # noqa: E402
     startup_spinner,
     THEME,
 )
-from rich.text import Text
+from rich.text import Text  # noqa: E402
+
+
+def _restore_original_streams():
+    """Restore original stdout/stderr after startup."""
+    global sys
+    sys.stdout = _original_stdout
+    sys.stderr = _original_stderr
 
 
 async def main(
@@ -101,6 +156,8 @@ async def main(
     print_status_overview("System", system_status)
 
     print_ready()
+
+    _restore_original_streams()
 
     conversation_history = []
     esc_pressed = {"value": False}

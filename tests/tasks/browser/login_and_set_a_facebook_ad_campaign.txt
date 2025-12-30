@@ -1,5 +1,4 @@
 Create to facebook account and set a facebook ad campaign for https://nuxiba.com/ Research about the company and the product and set a facebook ad campaign for the product. Use images for the campaign (You can use the image generator tool to generate images if necessary). All in a single browser agent and task.
 
 Credentials:
-Email: dream4billions@gmail.com
-Password: set a password for the facebook account
+Email: migal45714@cameltok.com

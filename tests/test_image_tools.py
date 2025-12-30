@@ -3,7 +3,6 @@ Test for Browser-Use image generation tools.
 """
 
 import os
-import asyncio
 import pytest
 from dotenv import load_dotenv
 
@@ -51,20 +50,24 @@ class TestImageTools:
         assert "generate_image" in actions
 
     @pytest.mark.asyncio
-    async def test_generate_image_live(self):
-        """Live test for image generation."""
+    async def test_generate_image_and_store_in_directory(self):
+        """Test image generation stores file in correct directory."""
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             pytest.skip("GOOGLE_API_KEY not set")
 
-        from computer_use.tools.browser.image_tools import _create_image_tools
+        from computer_use.tools.browser.image_tools import (
+            _create_image_tools,
+            IMAGE_GEN_DIR,
+            get_generated_image_paths,
+        )
+        from pathlib import Path
 
         tools = _create_image_tools(api_key)
         generate_image = tools.registry.registry.actions["generate_image"]
 
         result = await generate_image.function(
-            prompt="A simple red circle on white background, minimalist",
-            filename="test_image.png",
+            prompt="A photorealistic image of a golden retriever puppy sitting on grass in a sunny park",
         )
 
         print(f"\nResult: {result}")
@@ -76,6 +79,26 @@ class TestImageTools:
 
         assert result.extracted_content is not None
         assert "generated" in result.extracted_content.lower()
+
+        assert "Saved to:" in result.extracted_content
+        saved_path = result.extracted_content.split("Saved to:")[-1].strip()
+
+        image_file = Path(saved_path)
+        assert image_file.exists(), f"Image file should exist at {saved_path}"
+        assert (
+            image_file.parent == IMAGE_GEN_DIR
+        ), f"Image should be in {IMAGE_GEN_DIR}, got {image_file.parent}"
+        assert image_file.suffix == ".png", "Image should be a PNG file"
+        assert image_file.stat().st_size > 0, "Image file should not be empty"
+
+        valid_paths = get_generated_image_paths()
+        assert (
+            str(image_file) in valid_paths
+        ), f"Generated path {image_file} should be in whitelist"
+
+        print(f"\n✅ Image stored correctly at: {saved_path}")
+        print(f"   Directory: {IMAGE_GEN_DIR}")
+        print(f"   Size: {image_file.stat().st_size} bytes")
 
 
 class TestImageUploadIntegration:
@@ -128,7 +151,7 @@ class TestImageUploadIntegration:
         task = """
         1. Use generate_image to create a test image with prompt: 
            "A solid blue square on white background, simple geometric shape"
-        2. Navigate to https://codepen.io/mseche/pen/oOVXLg
+        2. Navigate to https://seleniumbase.io/apps/img_upload
         3. Find the file input element and use upload_file action with the generated image path
         4. Verify the image preview appears after upload
         5. Report the result

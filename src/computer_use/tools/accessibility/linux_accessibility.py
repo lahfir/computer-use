@@ -98,12 +98,13 @@ class LinuxAccessibility:
         self._element_registry.clear()
         self._last_interaction_time = time.time()
 
-    def get_app(self, app_name: str) -> Optional[Any]:
+    def get_app(self, app_name: str, retry_count: int = 3) -> Optional[Any]:
         """
         Get application reference, using cache when available.
 
         Args:
             app_name: Application name
+            retry_count: Number of retry attempts (for API consistency)
 
         Returns:
             App reference or None

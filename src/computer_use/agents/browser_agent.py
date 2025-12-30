@@ -4,16 +4,75 @@ Contains Browser-Use Agent creation and execution logic.
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 import tempfile
 import glob
 import platform
 import os
 
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.outputs import LLMResult
+
 from ..schemas.actions import ActionResult
 from ..schemas.browser_output import BrowserOutput, FileDetail
 from ..prompts.browser_prompts import build_full_context
 from ..tools.browser import load_browser_tools
+
+
+class TokenTrackingCallback(BaseCallbackHandler):
+    """Callback handler to track token usage from LLM calls."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+        self.total_tokens = 0
+
+    def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
+        """Track token usage when LLM call completes."""
+        usage = {}
+
+        if response.llm_output:
+            usage = (
+                response.llm_output.get("usage_metadata")
+                or response.llm_output.get("token_usage")
+                or {}
+            )
+
+        if not usage and response.generations:
+            for gen_list in response.generations:
+                for gen in gen_list:
+                    if hasattr(gen, "generation_info") and gen.generation_info:
+                        usage = gen.generation_info.get("usage_metadata", {})
+                        if usage:
+                            break
+                    if hasattr(gen, "message") and hasattr(
+                        gen.message, "usage_metadata"
+                    ):
+                        um = gen.message.usage_metadata
+                        if um:
+                            usage = {
+                                "input_tokens": getattr(um, "input_tokens", 0),
+                                "output_tokens": getattr(um, "output_tokens", 0),
+                            }
+                            break
+
+        if usage:
+            self.prompt_tokens += usage.get("input_tokens", 0) or usage.get(
+                "prompt_tokens", 0
+            )
+            self.completion_tokens += usage.get("output_tokens", 0) or usage.get(
+                "completion_tokens", 0
+            )
+            self.total_tokens = self.prompt_tokens + self.completion_tokens
+
+    def get_usage(self) -> Dict[str, int]:
+        """Get current token usage."""
+        return {
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+        }
 
 
 def get_default_chrome_paths() -> dict:
@@ -77,6 +136,12 @@ class BrowserAgent:
         self.profile_directory = profile_directory
         self.headless = headless
         self.gui_delegate = gui_delegate
+
+        self.token_callback = TokenTrackingCallback()
+        if hasattr(llm_client, "callbacks"):
+            if llm_client.callbacks is None:
+                llm_client.callbacks = []
+            llm_client.callbacks.append(self.token_callback)
 
         self._configure_profile_paths(user_data_dir, executable_path)
 
@@ -152,21 +217,40 @@ class BrowserAgent:
                 """Callback for browser-use agent step updates."""
                 dashboard.set_agent("Browser Agent")
 
+                usage = self.token_callback.get_usage()
+                if usage["total_tokens"] > 0:
+                    dashboard.update_token_usage(
+                        usage["prompt_tokens"],
+                        usage["completion_tokens"],
+                    )
+                else:
+                    if hasattr(self.llm_client, "_token_usage"):
+                        tu = self.llm_client._token_usage
+                        if tu:
+                            dashboard.update_token_usage(
+                                tu.get("prompt_tokens", 0),
+                                tu.get("completion_tokens", 0),
+                            )
+
                 if hasattr(agent_output, "current_state"):
                     state = agent_output.current_state
+
                     if (
                         hasattr(state, "evaluation_previous_goal")
                         and state.evaluation_previous_goal
                     ):
+                        eval_text = state.evaluation_previous_goal
                         dashboard.add_log_entry(
                             ActionType.ANALYZE,
-                            f"Eval: {state.evaluation_previous_goal[:100]}",
+                            f"Eval: {eval_text}",
                             status="complete",
                         )
+
                     if hasattr(state, "memory") and state.memory:
-                        dashboard.set_thinking(state.memory[:150])
+                        dashboard.set_thinking(state.memory)
+
                     if hasattr(state, "next_goal") and state.next_goal:
-                        dashboard.set_action("Browser", target=state.next_goal[:80])
+                        dashboard.set_action("Browser", target=state.next_goal)
 
                 if hasattr(agent_output, "actions") and agent_output.actions:
                     for action in agent_output.actions:
@@ -174,19 +258,22 @@ class BrowserAgent:
                         action_dict = (
                             action.model_dump() if hasattr(action, "model_dump") else {}
                         )
-                        action_params = ", ".join(
-                            f"{k}={str(v)[:30]}"
-                            for k, v in list(action_dict.items())[:3]
+
+                        tool_id = dashboard.log_tool_start(
+                            f"browser_{action_name.lower()}",
+                            action_dict,
                         )
-                        dashboard.log_tool_start(f"Browser: {action_name}", action_dict)
-                        dashboard.add_log_entry(
-                            ActionType.EXECUTE,
-                            (
-                                f"{action_name}({action_params})"
-                                if action_params
-                                else action_name
-                            ),
-                        )
+
+                        result_text = f"Executed {action_name}"
+                        if hasattr(action, "result"):
+                            result_text = str(action.result)[:200]
+
+                        if tool_id:
+                            dashboard.log_tool_complete(
+                                tool_id,
+                                success=True,
+                                action_taken=result_text,
+                            )
 
             def done_callback(history):
                 """Callback when browser-use agent completes."""
@@ -246,11 +333,14 @@ class BrowserAgent:
             dashboard.set_browser_session(active=True, profile=None)
 
             available_files = []
+            task_id = None
             if self.has_image_gen:
                 from computer_use.tools.browser.image_tools import (
                     get_generated_image_paths,
+                    initialize_task_images,
                 )
 
+                task_id = initialize_task_images()
                 available_files.extend(get_generated_image_paths())
 
             agent = Agent(
@@ -266,12 +356,25 @@ class BrowserAgent:
 
             result: AgentHistoryList = await agent.run(max_steps=200)
 
+            usage = self.token_callback.get_usage()
+            if usage["total_tokens"] > 0:
+                dashboard.update_token_usage(
+                    usage["prompt_tokens"],
+                    usage["completion_tokens"],
+                )
+
             try:
                 await browser_session.kill()
             except Exception:
                 pass
             finally:
                 dashboard.set_browser_session(active=False)
+                if self.has_image_gen and task_id:
+                    from computer_use.tools.browser.image_tools import (
+                        cleanup_task_images,
+                    )
+
+                    cleanup_task_images()
 
             downloaded_files = []
             file_details = []

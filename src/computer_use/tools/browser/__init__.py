@@ -19,17 +19,19 @@ def load_browser_tools(gui_delegate=None) -> Tuple[Optional[object], bool, bool]
     from .twilio_tools import load_twilio_tools
     from .image_tools import load_image_tools
     from .delegation_tools import load_delegation_tools
+    from .paste_tools import load_paste_tools
 
     twilio_tools = load_twilio_tools()
     image_tools = load_image_tools()
     delegation_tools = load_delegation_tools(gui_delegate)
+    paste_tools = load_paste_tools()
 
     has_twilio = twilio_tools is not None
     has_image_gen = image_tools is not None
 
     base_tools = None
 
-    for toolset in [delegation_tools, twilio_tools, image_tools]:
+    for toolset in [paste_tools, delegation_tools, twilio_tools, image_tools]:
         if toolset:
             if base_tools:
                 base_tools.registry.registry.actions.update(
