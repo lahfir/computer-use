@@ -68,6 +68,8 @@ from .utils.ui import (  # noqa: E402
     console,
     dashboard,
     get_task_input,
+    add_to_task_history,
+    select_from_task_history,
     print_banner,
     print_platform_info,
     print_ready,
@@ -189,6 +191,13 @@ async def main(
                     console.print(f"\n  [{THEME['muted']}]Goodbye[/]")
                     break
 
+                if task.lower() in ["history", "h", "recent"]:
+                    selected = select_from_task_history()
+                    if selected:
+                        task = selected
+                    else:
+                        continue
+
                 dashboard.set_task(task)
 
                 if verbosity != VerbosityLevel.QUIET:
@@ -226,6 +235,7 @@ async def main(
                     if len(conversation_history) > 10:
                         conversation_history = conversation_history[-10:]
 
+                    add_to_task_history(task)
                     print_task_result(result)
                 else:
                     console.print(f"\n  [{THEME['warning']}]Task cancelled[/]\n")

@@ -1,13 +1,17 @@
 """
 Prompts module: task input and human assistance dialogs.
+Uses InquirerPy for interactive arrow-key selection menus.
 """
 
 import asyncio
 import logging
 from contextlib import contextmanager
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 
+from InquirerPy import inquirer
+from InquirerPy.base.control import Choice
+from InquirerPy.utils import InquirerPyStyle
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
@@ -20,9 +24,100 @@ from .state import VerbosityLevel, ActionType
 logger = logging.getLogger(__name__)
 
 
+INQUIRER_STYLE = InquirerPyStyle(
+    {
+        "questionmark": "#e5c07b",
+        "answermark": "#98c379",
+        "answer": "#61afef",
+        "input": "#abb2bf",
+        "question": "#abb2bf",
+        "answered_question": "#636d83",
+        "instruction": "#636d83",
+        "long_instruction": "#636d83",
+        "pointer": "#c678dd bold",
+        "checkbox": "#98c379",
+        "separator": "#636d83",
+        "skipped": "#636d83",
+        "validator": "#e06c75",
+        "marker": "#e5c07b",
+        "fuzzy_prompt": "#c678dd",
+        "fuzzy_info": "#636d83",
+        "fuzzy_border": "#4b5263",
+        "fuzzy_match": "#c678dd",
+        "spinner_pattern": "#c678dd",
+        "spinner_text": "#abb2bf",
+    }
+)
+
+
 # Key bindings for prompt
 _key_bindings = KeyBindings()
 _voice_mode_enabled = {"value": False}
+
+# Task history for quick re-selection (max 10 recent tasks)
+_task_history: List[str] = []
+_MAX_TASK_HISTORY = 10
+
+
+def add_to_task_history(task: str) -> None:
+    """
+    Add a task to the history for quick re-selection.
+
+    Args:
+        task: The task description to add
+    """
+    global _task_history
+    task = task.strip()
+    if not task:
+        return
+
+    if task in _task_history:
+        _task_history.remove(task)
+
+    _task_history.insert(0, task)
+
+    if len(_task_history) > _MAX_TASK_HISTORY:
+        _task_history = _task_history[:_MAX_TASK_HISTORY]
+
+
+def get_task_history() -> List[str]:
+    """Get the current task history."""
+    return _task_history.copy()
+
+
+def select_from_task_history(console: Console) -> Optional[str]:
+    """
+    Show interactive task history selection with arrow keys.
+
+    Returns:
+        Selected task or None if cancelled/new task requested
+    """
+    if not _task_history:
+        console.print(f"  [{THEME['muted']}]No task history yet.[/]")
+        return None
+
+    console.print()
+
+    choices = [
+        Choice(value=task, name=task[:60] + "..." if len(task) > 60 else task)
+        for task in _task_history
+    ]
+    choices.append(Choice(value=None, name="[Type new task...]"))
+
+    try:
+        selected = inquirer.select(
+            message="Select recent task (or type new)",
+            choices=choices,
+            pointer="›",
+            style=INQUIRER_STYLE,
+            qmark="",
+            amark="✓",
+        ).execute()
+
+        return selected
+
+    except (EOFError, KeyboardInterrupt):
+        return None
 
 
 @_key_bindings.add("enter")
@@ -315,7 +410,11 @@ async def get_task_input(
 def prompt_human_assistance(
     console: Console, reason: str, instructions: str
 ) -> HumanAssistanceResult:
-    """Display a human assistance dialog."""
+    """
+    Display a human assistance dialog with arrow-key selection menu.
+
+    Uses InquirerPy for interactive navigation instead of text input.
+    """
     console.print()
     console.print(f"[bold {THEME['warning']}]{'─' * 50}[/]")
     console.print(f"[bold {THEME['warning']}]🤝 HUMAN ASSISTANCE REQUIRED[/]")
@@ -326,38 +425,43 @@ def prompt_human_assistance(
     if instructions:
         console.print(f"[{THEME['muted']}]Instructions:[/] {instructions}")
 
-    console.print()
-    console.print(
-        f"[{THEME['tool_success']}][P][/] Proceed  "
-        f"[{THEME['text']}][R][/] Retry  "
-        f"[{THEME['warning']}][S][/] Skip  "
-        f"[{THEME['error']}][C][/] Cancel"
-    )
     console.print(f"[bold {THEME['warning']}]{'─' * 50}[/]")
+    console.print()
 
-    while True:
-        try:
-            choice = (
-                console.input(f"\n  [{THEME['text']}]Select action ›[/] ")
-                .strip()
-                .lower()
-            )
+    try:
+        choice = inquirer.select(
+            message="Select action",
+            choices=[
+                Choice(value="proceed", name="Proceed - Continue with the task"),
+                Choice(value="retry", name="Retry - Try again with different approach"),
+                Choice(value="skip", name="Skip - Skip this step"),
+                Choice(value="cancel", name="Cancel - Stop the entire task"),
+            ],
+            default="proceed",
+            pointer="›",
+            style=INQUIRER_STYLE,
+            qmark="",
+            amark="✓",
+        ).execute()
 
-            if choice in ("", "p", "proceed"):
-                return HumanAssistanceResult.PROCEED
-            if choice in ("r", "retry"):
-                return HumanAssistanceResult.RETRY
-            if choice in ("s", "skip"):
-                return HumanAssistanceResult.SKIP
-            if choice in ("c", "cancel", "q", "quit"):
-                return HumanAssistanceResult.CANCEL
+        result_map = {
+            "proceed": HumanAssistanceResult.PROCEED,
+            "retry": HumanAssistanceResult.RETRY,
+            "skip": HumanAssistanceResult.SKIP,
+            "cancel": HumanAssistanceResult.CANCEL,
+        }
+        return result_map.get(choice, HumanAssistanceResult.CANCEL)
 
-        except (EOFError, KeyboardInterrupt):
-            return HumanAssistanceResult.CANCEL
+    except (EOFError, KeyboardInterrupt):
+        return HumanAssistanceResult.CANCEL
 
 
 def print_command_approval(console: Console, command: str) -> str:
-    """Display command approval dialog with full command."""
+    """
+    Display command approval dialog with arrow-key selection menu.
+
+    Uses InquirerPy for interactive navigation instead of text input.
+    """
     console.print()
     console.print(f"[bold {THEME['warning']}]{'─' * 50}[/]")
     console.print(f"[bold {THEME['warning']}]⚠ COMMAND REQUIRES APPROVAL[/]")
@@ -366,29 +470,28 @@ def print_command_approval(console: Console, command: str) -> str:
     console.print(f"[{THEME['muted']}]Command:[/]")
     console.print(f"  [{THEME['warning']}]{command}[/]")
 
-    console.print()
-    console.print(
-        f"[{THEME['tool_success']}][1][/] Allow once  "
-        f"[{THEME['text']}][2][/] Allow for session  "
-        f"[{THEME['error']}][3][/] Deny & stop"
-    )
     console.print(f"[bold {THEME['warning']}]{'─' * 50}[/]")
+    console.print()
 
-    while True:
-        try:
-            choice = console.input(f"\n  [{THEME['text']}]Select (1/2/3) ›[/] ").strip()
+    try:
+        choice = inquirer.select(
+            message="Select action",
+            choices=[
+                Choice(value="1", name="Allow once"),
+                Choice(value="2", name="Allow for session"),
+                Choice(value="3", name="Deny & stop"),
+            ],
+            default="1",
+            pointer="›",
+            style=INQUIRER_STYLE,
+            qmark="",
+            amark="✓",
+        ).execute()
 
-            if choice == "1":
-                return CommandApprovalResult.ALLOW_ONCE.value
-            if choice == "2":
-                return CommandApprovalResult.ALLOW_SESSION.value
-            if choice in ("3", ""):
-                return CommandApprovalResult.DENY.value
+        return choice or CommandApprovalResult.DENY.value
 
-            console.print(f"  [{THEME['warning']}]Invalid choice. Enter 1, 2, or 3.[/]")
-
-        except (EOFError, KeyboardInterrupt):
-            return CommandApprovalResult.DENY.value
+    except (EOFError, KeyboardInterrupt):
+        return CommandApprovalResult.DENY.value
 
 
 def print_task_result(console: Console, result) -> None:

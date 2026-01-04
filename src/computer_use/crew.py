@@ -7,6 +7,11 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 from crewai import Agent, Crew, Process, Task
+from crewai.events.event_bus import crewai_event_bus
+from crewai.events.types.llm_events import (
+    LLMCallStartedEvent,
+    LLMCallCompletedEvent,
+)
 
 from .agents.browser_agent import BrowserAgent
 from .agents.coding_agent import CodingAgent
@@ -243,6 +248,19 @@ class ComputerUseCrew:
                         dashboard.set_thinking(thought)
 
                 if (
+                    is_manager
+                    and hasattr(step, "tool")
+                    and step.tool == "Delegate work to coworker"
+                ):
+                    tool_input = getattr(step, "tool_input", {})
+                    if isinstance(tool_input, dict):
+                        agent_name = tool_input.get("coworker", "agent")
+                        task_desc = tool_input.get("task", "task")[:80]
+                        dashboard.set_thinking(
+                            f"Delegating to {agent_name}: {task_desc}"
+                        )
+
+                if (
                     not is_manager
                     and hasattr(step, "tool")
                     and hasattr(step, "tool_input")
@@ -280,16 +298,15 @@ class ComputerUseCrew:
             '{"',
             "{'",
             "action:",
-            "thought:",
         ]
         for pattern in invalid_starts:
             if text_lower.startswith(pattern):
                 return False
 
         invalid_contains = [
-            "delegate work to coworker",
-            "Specialist",
-            "Expert",
+            "coworker",
+            "use the following format",
+            "begin!",
         ]
         for pattern in invalid_contains:
             if pattern.lower() in text_lower:
@@ -442,6 +459,24 @@ CRITICAL REMINDERS:
 - Evidence of completion""",
         )
 
+    def _on_llm_call_started(self, source: Any, event: LLMCallStartedEvent) -> None:
+        """Handle LLM call start - show animated status."""
+        model = getattr(event, "model", "LLM") or "LLM"
+        model_name = str(model).split("/")[-1] if "/" in str(model) else str(model)
+        dashboard._show_status(f"Calling {model_name}...")
+
+    def _on_llm_call_completed(self, source: Any, event: LLMCallCompletedEvent) -> None:
+        """Handle LLM call completion - update status."""
+        dashboard._show_status("Processing response...")
+
+    def _setup_llm_event_handlers(self) -> None:
+        """Subscribe to CrewAI LLM events for real-time status updates."""
+        try:
+            crewai_event_bus.on(LLMCallStartedEvent, self._on_llm_call_started)
+            crewai_event_bus.on(LLMCallCompletedEvent, self._on_llm_call_completed)
+        except Exception:
+            pass
+
     async def _run_hierarchical_crew(
         self, task: str, context_str: str
     ) -> TaskExecutionResult:
@@ -470,6 +505,8 @@ CRITICAL REMINDERS:
             manager_agent=agents_dict["manager"],
             verbose=dashboard.is_verbose,
         )
+
+        self._setup_llm_event_handlers()
 
         loop = asyncio.get_event_loop()
         try:

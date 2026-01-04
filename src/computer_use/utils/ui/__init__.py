@@ -47,6 +47,9 @@ from .prompts import (
     print_warning as _print_warning,
     print_failure as _print_failure,
     print_verbose_only_fn as _print_verbose_only_fn,
+    add_to_task_history as _add_to_task_history,
+    get_task_history as _get_task_history,
+    select_from_task_history as _select_from_task_history,
 )
 
 from .formatters import (
@@ -167,6 +170,21 @@ def print_verbose_only(message: str):
     _print_verbose_only_fn(console, message)
 
 
+def add_to_task_history(task: str):
+    """Add a task to the history for quick re-selection."""
+    _add_to_task_history(task)
+
+
+def get_task_history():
+    """Get the current task history."""
+    return _get_task_history()
+
+
+def select_from_task_history():
+    """Show interactive task history selection with arrow keys."""
+    return _select_from_task_history(console)
+
+
 __all__ = [
     # State management
     "VerbosityLevel",
@@ -204,6 +222,9 @@ __all__ = [
     "print_action_result",
     "print_verbose_only",
     "format_duration",
+    "add_to_task_history",
+    "get_task_history",
+    "select_from_task_history",
     # Formatters
     "format_dict_inline",
     "format_json_block",

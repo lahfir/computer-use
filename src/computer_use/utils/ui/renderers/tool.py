@@ -55,10 +55,13 @@ class ToolRenderer(BaseRenderer):
         return Group(*lines)
 
     def _render_tool_header(self, tool: ToolState) -> Text:
-        """Render the tool header with status icon and duration."""
+        """
+        Render the tool header with status icon and inline duration.
+
+        Format: ⟳ tool_name (5.00s)
+        """
         line = Text()
 
-        # Status icon
         if tool.status == "pending":
             line.append(f"  {ICONS['pending']} ", style=f"bold {THEME['tool_pending']}")
         elif tool.status == "success":
@@ -68,17 +71,12 @@ class ToolRenderer(BaseRenderer):
         else:
             line.append("  ○ ", style=THEME["muted"])
 
-        # Tool name
         name_style = THEME["tool_error"] if tool.status == "error" else THEME["text"]
         line.append(tool.name, style=f"bold {name_style}")
 
-        # Duration (right-aligned effect with spacing)
         if tool.duration > 0:
             duration_str = self._format_duration(tool.duration)
-            # Add spacing to simulate right-alignment
-            spacing = " " * max(1, 50 - len(tool.name))
-            line.append(spacing, style=THEME["muted"])
-            line.append(duration_str, style=THEME["muted"])
+            line.append(f" ({duration_str})", style=THEME["muted"])
 
         return line
 
@@ -86,30 +84,28 @@ class ToolRenderer(BaseRenderer):
         """Render tool input parameters - full display, no truncation."""
         line = Text()
         line.append(f"      {ICONS['input']} ", style=THEME["input"])
-        line.append(format_dict_inline(input_data, max_items=10), style=THEME["text"])
+        line.append(format_dict_inline(input_data), style=THEME["text"])
         return line
 
     def _render_output(self, output_data) -> Text:
-        """Render tool output - full display for important data."""
+        """Render tool output - full display."""
         line = Text()
         line.append(f"      {ICONS['output']} ", style=THEME["output"])
 
         if isinstance(output_data, str):
             line.append(output_data, style=THEME["text"])
         elif isinstance(output_data, dict):
-            line.append(
-                format_dict_inline(output_data, max_items=10), style=THEME["text"]
-            )
+            line.append(format_dict_inline(output_data), style=THEME["text"])
         else:
             line.append(str(output_data), style=THEME["text"])
 
         return line
 
     def _render_error(self, error: str) -> Text:
-        """Render tool error."""
+        """Render tool error - full display."""
         line = Text()
         line.append(f"      {ICONS['error']} ", style=f"bold {THEME['error']}")
-        line.append(error[:150], style=THEME["error"])
+        line.append(error, style=THEME["error"])
         return line
 
     def _format_duration(self, seconds: float) -> str:

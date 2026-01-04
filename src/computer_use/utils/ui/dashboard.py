@@ -193,6 +193,11 @@ class DashboardManager:
         self._is_running = False
         self._stop_live_status()
 
+        if self._task and self._task.active_agent_id and not cancelled:
+            final_agent = self._task.agents.get(self._task.active_agent_id)
+            if final_agent and final_agent.tools:
+                self._print_agent_summary(final_agent)
+
         if print_log and self._task and not cancelled:
             self.console.print()
             self.print_session_log()
@@ -212,17 +217,19 @@ class DashboardManager:
         if not self._task:
             return
 
-        # Strip whitespace/newlines from agent name (YAML config adds trailing \n)
         agent_name = agent_name.strip()
 
-        # Skip if same agent
         if agent_name == self._current_agent_name:
             return
+
+        if self._current_agent_name and self._task.active_agent_id:
+            prev_agent = self._task.agents.get(self._task.active_agent_id)
+            if prev_agent:
+                self._print_agent_summary(prev_agent)
 
         self._current_agent_name = agent_name
         agent = self._task.set_active_agent(agent_name)
 
-        # Only print header if not already printed
         if agent.agent_id not in self._printed_agents:
             self._printed_agents.add(agent.agent_id)
             self._print_agent_header(agent)
@@ -385,6 +392,40 @@ class DashboardManager:
         self.console.print()
         self._flush()
 
+    def _print_agent_summary(self, agent: AgentState) -> None:
+        """
+        Print agent completion summary with duration and tool count.
+
+        Format:
+        └─ Agent Name ─────────────── COMPLETE ─┘
+        │ Duration: 8s │ Tools: 3/3              │
+        """
+        duration = agent.duration
+        if duration < 60:
+            duration_str = f"{int(duration)}s"
+        else:
+            mins = int(duration // 60)
+            secs = int(duration % 60)
+            duration_str = f"{mins}m {secs}s"
+
+        total_tools = len(agent.tools)
+        success_tools = sum(1 for t in agent.tools if t.status == "success")
+
+        name_part = f"└─ {agent.name} "
+        stats = f" Duration: {duration_str} │ Tools: {success_tools}/{total_tools} "
+        padding_len = max(1, 56 - len(agent.name) - len(stats))
+        padding = "─" * padding_len
+        end_part = " COMPLETE ─┘"
+
+        summary = Text()
+        summary.append(name_part, style=f"bold {THEME['tool_success']}")
+        summary.append(padding, style=THEME["border"])
+        summary.append(stats, style=THEME["muted"])
+        summary.append(end_part, style=f"bold {THEME['tool_success']}")
+
+        self._print(summary)
+        self.console.print()
+
     def _print_agent_header(self, agent: AgentState) -> None:
         """Print agent header when it becomes active."""
         self.console.print()
@@ -473,19 +514,28 @@ class DashboardManager:
         return ""
 
     def _print_tool_complete(self, tool: ToolState) -> None:
-        """Print tool completion using ToolRenderer, then show processing status."""
+        """
+        Print tool completion with duration in header.
+
+        Format:
+          ✓ tool_name (5.00s)
+              ← output
+        """
+        self.console.print()
+        header = self._tool_renderer._render_tool_header(tool)
+        self._print(header)
+
         if tool.status == "success":
             output_line = self._tool_renderer._render_output(tool.output_data)
-            duration_text = Text()
-            duration_text.append(f" ({tool.duration:.2f}s)", style=THEME["muted"])
-            output_line.append_text(duration_text)
             self._print(output_line)
+            self.console.print()
             self._show_status("Processing results...")
         else:
             error_line = self._tool_renderer._render_error(
                 tool.error or "Unknown error"
             )
             self._print(error_line)
+            self.console.print()
             self._show_status("Handling error...")
 
     # ─────────────────────────────────────────────────────────────────────

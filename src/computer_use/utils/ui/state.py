@@ -67,6 +67,15 @@ class AgentState:
     current_thought: Optional[str] = None
     tools: List[ToolState] = field(default_factory=list)
     active_tool_id: Optional[str] = None
+    start_time: float = field(default_factory=time.time)
+    end_time: Optional[float] = None
+
+    @property
+    def duration(self) -> float:
+        """Calculate agent's active duration."""
+        if self.end_time:
+            return self.end_time - self.start_time
+        return time.time() - self.start_time
 
     def add_tool(self, name: str, input_data: Any) -> ToolState:
         tool_id = str(uuid.uuid4())
