@@ -85,10 +85,10 @@ class ExecuteShellCommandTool(InstrumentedBaseTool):
         """
         from ..utils.ui import dashboard, ActionType
 
-        command = self._extract_command(command)
+        if dashboard.get_current_agent_name() == "Manager":
+            dashboard.set_agent("System Agent")
 
-        if dashboard.get_current_agent_name() != "Manager":
-            dashboard.add_log_entry(ActionType.EXECUTE, f"Executing: {command}")
+        command = self._extract_command(command)
 
         safety_checker = self._safety_checker
         confirmation_manager = self._confirmation_manager
@@ -100,18 +100,13 @@ class ExecuteShellCommandTool(InstrumentedBaseTool):
                 return f"ERROR: {error_msg}"
 
         if confirmation_manager:
-            was_manager = dashboard.get_current_agent_name() == "Manager"
-            if was_manager:
-                dashboard.set_agent("System Agent")
-                dashboard.set_thinking(
-                    f"Executing: {command[:60]}{'...' if len(command) > 60 else ''}"
-                )
             dashboard._stop_live_status()
             approved, reason = confirmation_manager.request_confirmation(command)
             if not approved:
                 error_msg = f"User {reason} command: {command}"
                 dashboard.add_log_entry(ActionType.ERROR, error_msg, status="error")
                 return f"ERROR: {error_msg}"
+            dashboard.reset_tool_timer("execute_shell_command")
             dashboard._start_live_status()
 
         try:
@@ -128,11 +123,28 @@ class ExecuteShellCommandTool(InstrumentedBaseTool):
                 output_str = (
                     f"SUCCESS: Command executed successfully (exit code 0)\n"
                     f"Command: {command}\n"
-                    f"NOTE: This means the command ran without errors, NOT that the goal was achieved.\n"
-                    f"You MUST verify the outcome matches expectations.\n"
                 )
                 if result.stdout:
-                    output_str += f"Output: {result.stdout.strip()}\n"
+                    stdout = result.stdout.strip()
+                    lines = stdout.split("\n")
+                    max_lines = 100
+                    max_chars = 8000
+
+                    if len(lines) > max_lines:
+                        truncated = "\n".join(lines[:max_lines])
+                        output_str += (
+                            f"Output ({len(lines)} lines, showing first {max_lines}):\n"
+                            f"{truncated}\n"
+                            f"... [{len(lines) - max_lines} more lines truncated]\n"
+                        )
+                    elif len(stdout) > max_chars:
+                        output_str += (
+                            f"Output (truncated to {max_chars} chars):\n"
+                            f"{stdout[:max_chars]}\n"
+                            f"... [output truncated]\n"
+                        )
+                    else:
+                        output_str += f"Output:\n{stdout}\n"
                 dashboard.add_log_entry(
                     ActionType.COMPLETE, "Command succeeded", status="complete"
                 )

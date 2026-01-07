@@ -157,15 +157,14 @@ class ToolRenderer(BaseRenderer):
         if len(lines) == 1:
             return lines[0][:77] + "..."
 
-        first_line = lines[0]
-        indent = "\n         "
-        formatted = first_line
+        indent = "\n          │ "
+        formatted = lines[0]
 
-        for line in lines[1:8]:
+        for line in lines[1:15]:
             formatted += f"{indent}{line.strip()}"
 
-        if len(lines) > 8:
-            formatted += f"{indent}... ({len(lines) - 8} more lines)"
+        if len(lines) > 15:
+            formatted += f"{indent}... ({len(lines) - 15} more lines)"
 
         return formatted
 

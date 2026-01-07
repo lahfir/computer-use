@@ -286,7 +286,6 @@ class ComputerUseCrew:
                 ):
                     tool_name = step.tool
                     if tool_name and tool_name != "Delegate work to coworker":
-                        dashboard.log_tool_start(tool_name, step.tool_input)
                         dashboard._show_status(f"Running {tool_name}...")
 
             self._update_token_usage()

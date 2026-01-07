@@ -59,6 +59,9 @@ class ClickInput(BaseModel):
     current_app: Optional[str] = Field(
         default=None, description="Current application name"
     )
+    explanation: Optional[str] = Field(
+        default=None, description="Why this click is needed"
+    )
 
 
 class ClickElementTool(InstrumentedBaseTool):
@@ -85,6 +88,7 @@ class ClickElementTool(InstrumentedBaseTool):
         visual_context: Optional[str] = None,
         click_type: str = "single",
         current_app: Optional[str] = None,
+        explanation: Optional[str] = None,
     ) -> ActionResult:
         """
         Click element with priority: element_id > element > OCR.
@@ -96,6 +100,7 @@ class ClickElementTool(InstrumentedBaseTool):
             visual_context: Spatial context for OCR fallback
             click_type: single/double/right
             current_app: Current app name
+            explanation: Why this click is needed (for logging)
 
         Returns:
             ActionResult with click details
@@ -304,6 +309,9 @@ class TypeInput(BaseModel):
 
     text: str = Field(description="Text to type")
     use_clipboard: bool = Field(default=False, description="Force clipboard paste")
+    explanation: Optional[str] = Field(
+        default=None, description="Why this text is being typed"
+    )
 
 
 class TypeTextTool(InstrumentedBaseTool):
@@ -314,13 +322,16 @@ class TypeTextTool(InstrumentedBaseTool):
     Smart paste for paths, URLs, long text. Supports hotkeys (cmd+c, ctrl+v)."""
     args_schema: type[BaseModel] = TypeInput
 
-    def _run(self, text: str, use_clipboard: bool = False) -> ActionResult:
+    def _run(
+        self, text: str, use_clipboard: bool = False, explanation: Optional[str] = None
+    ) -> ActionResult:
         """
         Type text with smart paste detection.
 
         Args:
             text: Text to type
             use_clipboard: Force paste
+            explanation: Why this text is being typed (for logging)
 
         Returns:
             ActionResult with typing details

@@ -16,11 +16,17 @@ class InstrumentedBaseTool(BaseTool):
             def instrumented_run(self, *args, **kwargs):
                 tool_name = getattr(self, "name", None)
 
+                agent_switching_tools = {
+                    "execute_shell_command",
+                    "web_automation",
+                    "coding_automation",
+                }
+
                 try:
                     current_agent = dashboard.get_current_agent_name()
                     is_manager = current_agent == "Manager"
 
-                    if is_manager:
+                    if is_manager and tool_name not in agent_switching_tools:
                         tool_id = None
                     else:
                         tool_id = dashboard.get_pending_tool_id(tool_name)
@@ -42,9 +48,23 @@ class InstrumentedBaseTool(BaseTool):
                         action_taken = result.action_taken
                     if hasattr(result, "error"):
                         error = result.error
-                    elif isinstance(result, str) and result.startswith("ERROR"):
-                        success = False
-                        error = result
+                    elif isinstance(result, str):
+                        if result.startswith("ERROR") or result.startswith("TIMEOUT"):
+                            success = False
+                            error = result
+                        elif result.startswith("SUCCESS"):
+                            lines = result.split("\n")
+                            output_lines = []
+                            for line in lines:
+                                if line.startswith("Output"):
+                                    output_lines = lines[lines.index(line) + 1 :]
+                                    break
+                            if output_lines:
+                                action_taken = "\n".join(output_lines[:20])
+                                if len(output_lines) > 20:
+                                    action_taken += (
+                                        f"\n... ({len(output_lines) - 20} more lines)"
+                                    )
 
                     if tool_id:
                         dashboard.log_tool_complete(

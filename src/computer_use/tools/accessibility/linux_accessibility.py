@@ -247,14 +247,18 @@ class LinuxAccessibility:
             is_interactive = has_actions or is_enabled
 
             if not interactive_only or is_interactive:
-                element_info = self._extract_info(node, has_actions, is_enabled, app_name)
+                element_info = self._extract_info(
+                    node, has_actions, is_enabled, app_name
+                )
                 if element_info:
                     elements.append(element_info)
 
             for i in range(node.childCount):
                 try:
                     child = node.getChildAtIndex(i)
-                    self._traverse(child, elements, interactive_only, depth + 1, app_name)
+                    self._traverse(
+                        child, elements, interactive_only, depth + 1, app_name
+                    )
                 except Exception:
                     continue
 

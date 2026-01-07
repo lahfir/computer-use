@@ -248,7 +248,9 @@ class WindowsAccessibility:
 
             try:
                 for child in node.children():
-                    self._traverse(child, elements, interactive_only, depth + 1, app_name)
+                    self._traverse(
+                        child, elements, interactive_only, depth + 1, app_name
+                    )
             except Exception:
                 pass
 

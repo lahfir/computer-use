@@ -165,6 +165,9 @@ class OpenAppInput(BaseModel):
     """Input for opening an application."""
 
     app_name: str = Field(description="Application name to open")
+    explanation: Optional[str] = Field(
+        default=None, description="Why this app is being opened"
+    )
 
 
 class OpenApplicationTool(InstrumentedBaseTool):
@@ -174,12 +177,13 @@ class OpenApplicationTool(InstrumentedBaseTool):
     description: str = "Open desktop application by name (e.g., Calculator, Safari)"
     args_schema: type[BaseModel] = OpenAppInput
 
-    def _run(self, app_name: str) -> ActionResult:
+    def _run(self, app_name: str, explanation: Optional[str] = None) -> ActionResult:
         """
         Open application and WAIT for it to become active window.
 
         Args:
             app_name: Application name
+            explanation: Why this app is being opened (for logging)
 
         Returns:
             ActionResult with launch details

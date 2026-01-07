@@ -164,7 +164,13 @@ class DashboardManager:
     # ─────────────────────────────────────────────────────────────────────
 
     def set_task(self, description: str) -> None:
-        """Initialize a new task."""
+        """Initialize a new task. Fully reset all state from previous task."""
+        self._stop_status_timer()
+        self._stop_live_status()
+        self._is_running = False
+        sys.stdout.write("\r\x1b[2K")
+        sys.stdout.flush()
+
         self._task = TaskState(
             task_id=str(uuid.uuid4()),
             description=description,
@@ -361,6 +367,21 @@ class DashboardManager:
 
         return None
 
+    def reset_tool_timer(self, tool_name: str = None) -> None:
+        """Reset the start time of the most recent pending tool (call after approval)."""
+        if not self._task or not self._task.active_agent_id:
+            return
+
+        agent = self._task.agents.get(self._task.active_agent_id)
+        if not agent:
+            return
+
+        for tool in reversed(agent.tools):
+            if tool.status == "pending":
+                if tool_name is None or tool.name == tool_name:
+                    tool.start_time = time.time()
+                    return
+
     def log_tool_complete(
         self,
         tool_id: str,
@@ -537,37 +558,52 @@ class DashboardManager:
         self._show_status(f"Running {tool.name}...")
 
     def _get_action_description(self, tool_name: str, input_data: Dict) -> str:
-        """Generate human-readable action description."""
+        """
+        Generate human-readable action description.
+        Prioritizes agent's explanation if available.
+        """
         if not input_data:
             return ""
+
+        import json
+
+        data = input_data.get("value", input_data)
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                data = {"value": data}
+
+        if isinstance(data, list) and len(data) > 0:
+            data = data[0] if isinstance(data[0], dict) else {"value": data}
+
+        explanation = None
+        if isinstance(data, dict):
+            explanation = data.get("explanation")
+
+        if explanation and isinstance(explanation, str) and len(explanation) > 5:
+            return explanation[:120] + ("..." if len(explanation) > 120 else "")
 
         action_map = {
             "open_application": lambda d: f"Opening {d.get('app_name', 'application')}",
             "check_app_running": lambda d: f"Checking if {d.get('app_name', 'app')} is running",
-            "click_element": lambda d: f"Clicking {d.get('element_id', 'element')}",
-            "type_text": lambda d: "Typing text",
+            "click_element": lambda d: f"Clicking {d.get('target', d.get('element_id', 'element'))}",
+            "type_text": lambda d: f"Typing text into {d.get('target', 'field')}",
             "read_screen_text": lambda d: f"Reading text from {d.get('app_name', 'screen')}",
             "get_accessible_elements": lambda d: f"Scanning {d.get('app_name', 'app')} UI",
             "take_screenshot": lambda d: "Taking screenshot",
             "scroll": lambda d: f"Scrolling {d.get('direction', 'down')}",
-            "web_automation": lambda d: "Running web automation",
+            "web_automation": lambda d: d.get("task", "Running web automation")[:80],
             "execute_shell_command": lambda d: "Executing command",
-            "human_assistance": lambda d: f"⚠️ Requesting human help: {d.get('reason', 'assistance needed')}",
-            "request_human_assistance": lambda d: f"⚠️ Requesting human help: {d.get('reason', 'assistance needed')}",
+            "human_assistance": lambda d: f"⚠️ {d.get('reason', 'Requesting human help')}",
+            "request_human_assistance": lambda d: f"⚠️ {d.get('reason', 'Requesting human help')}",
+            "request_human_input": lambda d: f"⚠️ {d.get('prompt', 'Requesting input')}",
             "delegate_task": lambda d: f"Delegating to {d.get('agent', 'agent')}",
-            "coding_task": lambda d: "Running coding task",
+            "coding_task": lambda d: d.get("task", "Running coding task")[:80],
         }
 
         if tool_name in action_map:
             try:
-                data = input_data.get("value", input_data)
-                if isinstance(data, str):
-                    import json
-
-                    try:
-                        data = json.loads(data)
-                    except Exception:
-                        data = {"value": data}
                 return action_map[tool_name](data)
             except Exception:
                 pass

@@ -135,7 +135,9 @@ class LLMConfig:
         if cache_key in LLMConfig._llm_cache:
             return LLMConfig._llm_cache[cache_key]
 
-        llm_kwargs = {"model": model_name, "api_key": api_key}
+        llm_timeout = int(os.getenv("LLM_TIMEOUT", "120"))
+
+        llm_kwargs = {"model": model_name, "api_key": api_key, "timeout": llm_timeout}
 
         if reasoning_effort:
             llm_kwargs["reasoning_effort"] = reasoning_effort
