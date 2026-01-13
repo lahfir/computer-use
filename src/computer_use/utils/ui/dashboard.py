@@ -560,7 +560,7 @@ class DashboardManager:
     def _get_action_description(self, tool_name: str, input_data: Dict) -> str:
         """
         Generate human-readable action description.
-        Prioritizes agent's explanation if available.
+        ReAct Thought: already explains actions - this is just for UI clarity.
         """
         if not input_data:
             return ""
@@ -577,29 +577,13 @@ class DashboardManager:
         if isinstance(data, list) and len(data) > 0:
             data = data[0] if isinstance(data[0], dict) else {"value": data}
 
-        explanation = None
-        if isinstance(data, dict):
-            explanation = data.get("explanation")
-
-        if explanation and isinstance(explanation, str) and len(explanation) > 5:
-            return explanation[:120] + ("..." if len(explanation) > 120 else "")
+        if not isinstance(data, dict):
+            return ""
 
         action_map = {
-            "open_application": lambda d: f"Opening {d.get('app_name', 'application')}",
-            "check_app_running": lambda d: f"Checking if {d.get('app_name', 'app')} is running",
-            "click_element": lambda d: f"Clicking {d.get('target', d.get('element_id', 'element'))}",
-            "type_text": lambda d: f"Typing text into {d.get('target', 'field')}",
-            "read_screen_text": lambda d: f"Reading text from {d.get('app_name', 'screen')}",
-            "get_accessible_elements": lambda d: f"Scanning {d.get('app_name', 'app')} UI",
-            "take_screenshot": lambda d: "Taking screenshot",
-            "scroll": lambda d: f"Scrolling {d.get('direction', 'down')}",
-            "web_automation": lambda d: d.get("task", "Running web automation")[:80],
-            "execute_shell_command": lambda d: "Executing command",
-            "human_assistance": lambda d: f"⚠️ {d.get('reason', 'Requesting human help')}",
-            "request_human_assistance": lambda d: f"⚠️ {d.get('reason', 'Requesting human help')}",
-            "request_human_input": lambda d: f"⚠️ {d.get('prompt', 'Requesting input')}",
-            "delegate_task": lambda d: f"Delegating to {d.get('agent', 'agent')}",
-            "coding_task": lambda d: d.get("task", "Running coding task")[:80],
+            "request_human_input": lambda d: f"⚠️ {d.get('question', 'Requesting input')[:60]}",
+            "web_automation": lambda d: d.get("task", "")[:60],
+            "coding_automation": lambda d: d.get("task", "")[:60],
         }
 
         if tool_name in action_map:

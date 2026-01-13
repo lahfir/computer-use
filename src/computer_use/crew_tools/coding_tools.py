@@ -25,11 +25,7 @@ class CodingAgentTool(InstrumentedBaseTool):
     """
 
     name: str = "coding_automation"
-    description: str = (
-        "Execute coding tasks using Cline AI. "
-        "Pass a single 'task' string describing what code to write, fix, or modify. "
-        "Example: coding_automation(task='Create a Python snake game with pygame')"
-    )
+    description: str = "Execute coding task via Cline. Pass task as plain string."
     args_schema: type[BaseModel] = CodingAutomationInput
 
     def _run(self, task: str) -> str:

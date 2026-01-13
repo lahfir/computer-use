@@ -49,20 +49,10 @@ class WebAutomationTool(InstrumentedBaseTool):
     """
 
     name: str = "web_automation"
-    description: str = """Autonomous web automation using Browser-Use.
-    
-    Input: Provide 'task' as a PLAIN STRING (not a dict).
-    Examples: 
-    - task="Search for Nvidia stock price on Google Finance"
-    - task="Download the latest report from example.com"
-    
-    Capabilities:
-    - Navigate websites, click, type, fill forms
-    - Extract data from pages
-    - Download files (returns file path for other agents)
-    - Phone verification (internal)
-    
-    Output: Returns extracted data and file paths that other agents can use."""
+    description: str = (
+        "Web automation. Pass task as plain string. "
+        "One call = one browser session. Include all data in single call."
+    )
     args_schema: type[BaseModel] = WebAutomationInput
 
     def _run(self, task: str, url: Optional[str] = None) -> str:

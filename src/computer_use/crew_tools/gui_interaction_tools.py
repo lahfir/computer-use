@@ -37,47 +37,27 @@ def check_cancellation() -> Optional[ActionResult]:
 class ClickInput(BaseModel):
     """Input for clicking an element."""
 
-    target: Optional[str] = Field(
-        default="element",
-        description="Element to click (e.g., 'Light', 'Save button'). Optional when element_id is provided.",
-    )
+    target: Optional[str] = Field(default="element", description="Element label")
     element_id: Optional[str] = Field(
-        default=None,
-        description="Unique element ID from get_accessible_elements. BEST method - uses native click.",
+        default=None, description="ID from get_accessible_elements (BEST)"
     )
     element: Optional[dict] = Field(
-        default=None,
-        description="Element dict with 'center' [x, y]. Use element_id instead when available.",
+        default=None, description="Element with center [x,y]"
     )
     visual_context: Optional[str] = Field(
-        default=None,
-        description="Spatial context for OCR fallback only.",
+        default=None, description="Spatial context for OCR"
     )
-    click_type: str = Field(
-        default="single", description="Click type: single, double, or right"
-    )
-    current_app: Optional[str] = Field(
-        default=None, description="Current application name"
-    )
-    explanation: Optional[str] = Field(
-        default=None, description="Why this click is needed"
-    )
+    click_type: str = Field(default="single", description="single/double/right")
+    current_app: Optional[str] = Field(default=None, description="App name")
 
 
 class ClickElementTool(InstrumentedBaseTool):
-    """
-    Click element using native accessibility or OCR fallback.
-
-    BEST: Pass element_id from get_accessible_elements (native click, 100% accurate)
-    FALLBACK: Pass element dict with center coordinates
-    LAST RESORT: OCR with visual_context
-    """
+    """Click element using accessibility or OCR fallback."""
 
     name: str = "click_element"
-    description: str = """Click element.
-    BEST: element_id='<id>' from get_accessible_elements (native click, no duplicates)
-    FALLBACK: element=<dict with center>
-    LAST: OCR with target and visual_context"""
+    description: str = (
+        "Click element. BEST: element_id from get_accessible_elements. FALLBACK: OCR with target."
+    )
     args_schema: type[BaseModel] = ClickInput
 
     def _run(
@@ -88,19 +68,17 @@ class ClickElementTool(InstrumentedBaseTool):
         visual_context: Optional[str] = None,
         click_type: str = "single",
         current_app: Optional[str] = None,
-        explanation: Optional[str] = None,
     ) -> ActionResult:
         """
         Click element with priority: element_id > element > OCR.
 
         Args:
-            target: Element label (for logging/fallback)
-            element_id: Unique ID from get_accessible_elements (best method)
-            element: Element dict with 'center' [x, y]
-            visual_context: Spatial context for OCR fallback
+            target: Element label
+            element_id: ID from get_accessible_elements
+            element: Element dict with center
+            visual_context: Spatial context for OCR
             click_type: single/double/right
-            current_app: Current app name
-            explanation: Why this click is needed (for logging)
+            current_app: App name
 
         Returns:
             ActionResult with click details
@@ -308,30 +286,23 @@ class TypeInput(BaseModel):
     """Input for typing text."""
 
     text: str = Field(description="Text to type")
-    use_clipboard: bool = Field(default=False, description="Force clipboard paste")
-    explanation: Optional[str] = Field(
-        default=None, description="Why this text is being typed"
-    )
+    use_clipboard: bool = Field(default=False, description="Force paste")
 
 
 class TypeTextTool(InstrumentedBaseTool):
-    """Type text with smart paste detection and hotkey support."""
+    """Type text with smart paste detection."""
 
     name: str = "type_text"
-    description: str = """Type text, numbers, or keyboard shortcuts.
-    Smart paste for paths, URLs, long text. Supports hotkeys (cmd+c, ctrl+v)."""
+    description: str = "Type text or hotkeys (cmd+c). Auto-pastes paths/URLs."
     args_schema: type[BaseModel] = TypeInput
 
-    def _run(
-        self, text: str, use_clipboard: bool = False, explanation: Optional[str] = None
-    ) -> ActionResult:
+    def _run(self, text: str, use_clipboard: bool = False) -> ActionResult:
         """
         Type text with smart paste detection.
 
         Args:
             text: Text to type
             use_clipboard: Force paste
-            explanation: Why this text is being typed (for logging)
 
         Returns:
             ActionResult with typing details

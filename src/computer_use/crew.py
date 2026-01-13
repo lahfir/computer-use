@@ -409,6 +409,7 @@ class ComputerUseCrew:
             "max_iter": config.get("max_iter", 15),
             "allow_delegation": config.get("allow_delegation", False),
             "memory": True,
+            "respect_context_window": True,
             "step_callback": self._create_step_callback(agent_role),
         }
 
@@ -463,23 +464,11 @@ class ComputerUseCrew:
 
     def _create_manager_task(self, task: str, context_str: str) -> Task:
         """Create the manager task for hierarchical delegation."""
-        task_description = task
-        if context_str:
-            task_description = f"{task}{context_str}"
+        task_description = f"{task}{context_str}" if context_str else task
 
         return Task(
-            description=f"""USER REQUEST: {task_description}
-
-Understand what the user wants to achieve, then delegate to the appropriate specialist(s).
-
-CRITICAL REMINDERS:
-- Pass EXACT file paths/URLs between agents (never paraphrase or simplify paths)
-- Browser tasks = ONE delegation (session continuity)
-- Verify outcomes, not just actions""",
-            expected_output="""Confirmation that the user's goal was achieved, with:
-- What was accomplished
-- Any outputs produced (files, data, results)
-- Evidence of completion""",
+            description=f"USER REQUEST: {task_description}\n\nDelegate to appropriate specialist. Pass EXACT paths/URLs.",
+            expected_output="What was accomplished + evidence of completion.",
         )
 
     def _setup_llm_event_handlers(self) -> None:

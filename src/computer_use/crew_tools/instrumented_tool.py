@@ -17,14 +17,17 @@ class InstrumentedBaseTool(BaseTool):
                 tool_name = getattr(self, "name", None)
 
                 agent_switching_tools = {
-                    "execute_shell_command",
-                    "web_automation",
-                    "coding_automation",
+                    "execute_shell_command": "System Agent",
+                    "web_automation": "Browser Agent",
+                    "coding_automation": "Coding Agent",
                 }
 
                 try:
                     current_agent = dashboard.get_current_agent_name()
                     is_manager = current_agent == "Manager"
+
+                    if is_manager and tool_name in agent_switching_tools:
+                        dashboard.set_agent(agent_switching_tools[tool_name])
 
                     if is_manager and tool_name not in agent_switching_tools:
                         tool_id = None

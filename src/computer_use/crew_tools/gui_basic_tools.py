@@ -87,10 +87,7 @@ class TakeScreenshotTool(InstrumentedBaseTool):
     """Capture screenshot of screen or region."""
 
     name: str = "take_screenshot"
-    description: str = (
-        "Capture screenshot of entire screen, specific region, or target a specific application window. "
-        "Use app_name parameter to capture ONLY that app's window (e.g., app_name='Calculator')"
-    )
+    description: str = "Capture screenshot. Use app_name for specific window."
     args_schema: type[BaseModel] = TakeScreenshotInput
 
     def _run(
@@ -164,26 +161,22 @@ class TakeScreenshotTool(InstrumentedBaseTool):
 class OpenAppInput(BaseModel):
     """Input for opening an application."""
 
-    app_name: str = Field(description="Application name to open")
-    explanation: Optional[str] = Field(
-        default=None, description="Why this app is being opened"
-    )
+    app_name: str = Field(description="App name")
 
 
 class OpenApplicationTool(InstrumentedBaseTool):
     """Open desktop application."""
 
     name: str = "open_application"
-    description: str = "Open desktop application by name (e.g., Calculator, Safari)"
+    description: str = "Open app by name (e.g., Calculator, Safari)"
     args_schema: type[BaseModel] = OpenAppInput
 
-    def _run(self, app_name: str, explanation: Optional[str] = None) -> ActionResult:
+    def _run(self, app_name: str) -> ActionResult:
         """
         Open application and WAIT for it to become active window.
 
         Args:
             app_name: Application name
-            explanation: Why this app is being opened (for logging)
 
         Returns:
             ActionResult with launch details
@@ -322,10 +315,7 @@ class ReadScreenTextTool(InstrumentedBaseTool):
     """Extract text from screen using OCR."""
 
     name: str = "read_screen_text"
-    description: str = (
-        "Extract visible text from screen, specific region, or application window using OCR. "
-        "Can target entire screen, custom region, or specific application."
-    )
+    description: str = "Read text from screen/app via OCR."
     args_schema: type[BaseModel] = ReadScreenInput
 
     def _run(
@@ -473,11 +463,7 @@ class ListRunningAppsTool(InstrumentedBaseTool):
     """List all currently running applications."""
 
     name: str = "list_running_apps"
-    description: str = (
-        "Get list of all currently running applications. "
-        "Use this BEFORE trying to open an app to check if it's already running. "
-        "Returns list of app names that are currently active."
-    )
+    description: str = "Get list of running apps."
     args_schema: type[BaseModel] = ListRunningAppsInput
 
     def _run(self) -> ActionResult:
@@ -556,11 +542,7 @@ class CheckAppRunningTool(InstrumentedBaseTool):
     """Check if a specific application is currently running."""
 
     name: str = "check_app_running"
-    description: str = (
-        "Check if a specific application is currently running. "
-        "Use this to verify an app's state before trying to open or interact with it. "
-        "Returns true if app is running, false otherwise."
-    )
+    description: str = "Check if app is running."
     args_schema: type[BaseModel] = CheckAppRunningInput
 
     def _run(self, app_name: str) -> ActionResult:
@@ -692,10 +674,8 @@ class GetAccessibleElementsTool(InstrumentedBaseTool):
 
     name: str = "get_accessible_elements"
     description: str = (
-        "Get interactive UI elements from an application using native accessibility APIs. "
-        "Use filter_role to find specific element types (TextField, TextArea, Button, etc). "
-        "Use filter_text to find elements by label. Elements cached for 30s - reuse element_ids. "
-        "Returns elements with unique IDs for click_element."
+        "Get clickable UI elements from app. filter_role/filter_text optional. "
+        "Returns element_ids for click_element."
     )
     args_schema: type[BaseModel] = GetAccessibleElementsInput
 
@@ -984,10 +964,7 @@ class GetWindowImageTool(InstrumentedBaseTool):
 
     name: str = "get_window_image"
     description: str = (
-        "Get base64-encoded image of a window, region, or element for vision analysis. "
-        "COST-AWARE: Only use when OCR/accessibility are insufficient. "
-        "Returns base64 PNG image and file path. "
-        "Use for: ambiguous UI elements, spatial reasoning, multi-panel layouts."
+        "Get window image for vision. Use only when OCR/accessibility insufficient."
     )
     args_schema: type[BaseModel] = GetWindowImageInput
 
@@ -1086,12 +1063,7 @@ class RequestHumanInputTool(InstrumentedBaseTool):
     """Request human input for ambiguous decisions or dialog choices."""
 
     name: str = "request_human_input"
-    description: str = (
-        "Request human input when encountering ambiguous situations like dialogs with multiple options "
-        "(Replace/Keep Both/Cancel), unclear user intent, or decisions that require user preference. "
-        "Use this when you detect a dialog popup asking for user decision. "
-        "DO NOT use this for simple yes/no confirmations - only for ambiguous multi-option scenarios."
-    )
+    description: str = "Ask user for input on ambiguous dialogs/decisions."
     args_schema: type[BaseModel] = RequestHumanInputInput
 
     def _run(self, question: str, context: str) -> ActionResult:

@@ -16,35 +16,16 @@ class ExecuteCommandInput(BaseModel):
     """Input for executing shell command."""
 
     command: str = Field(description="Shell command to execute")
-    explanation: str = Field(description="Why this command is needed")
 
 
 class ExecuteShellCommandTool(InstrumentedBaseTool):
-    """
-    Execute shell command safely with validation.
-    Runs commands in user home directory.
-    """
+    """Execute shell command safely with validation."""
 
     name: str = "execute_shell_command"
-    description: str = """Execute shell commands on the system. REQUIRED for any terminal/system operation.
-    
-    IMPORTANT: "SUCCESS" only means the command executed without errors (exit code 0).
-    It does NOT mean the command achieved the desired outcome. You MUST verify results.
-    
-    VERIFICATION REQUIRED:
-    - For state changes: Run a verification command to confirm the change occurred
-    - For file operations: Check if files were created/modified/deleted as expected
-    - For system changes: Verify the system state matches expectations
-    
-    Args:
-        command (str): The shell command to execute
-        explanation (str): Brief explanation of why this command is needed
-    
-    Returns:
-        Command output or error message. "SUCCESS" means command ran, NOT that goal was achieved.
-    
-    Example: execute_shell_command(command="ls -la", explanation="List files")
-    """
+    description: str = (
+        "Run shell command. SUCCESS=executed (exit 0), NOT goal achieved. "
+        "Verify results with follow-up command."
+    )
     args_schema: type[BaseModel] = ExecuteCommandInput
 
     def _extract_command(self, command: str) -> str:
@@ -71,14 +52,12 @@ class ExecuteShellCommandTool(InstrumentedBaseTool):
 
         return command
 
-    def _run(self, command: str, explanation: str) -> str:
+    def _run(self, command: str) -> str:
         """
         Execute shell command with safety checks.
-        Extracted from system_agent._execute_command.
 
         Args:
-            command: Shell command
-            explanation: Reasoning for command
+            command: Shell command to execute
 
         Returns:
             String result for CrewAI
@@ -120,31 +99,30 @@ class ExecuteShellCommandTool(InstrumentedBaseTool):
             )
 
             if result.returncode == 0:
-                output_str = (
-                    f"SUCCESS: Command executed successfully (exit code 0)\n"
-                    f"Command: {command}\n"
-                )
+                output_str = f"SUCCESS (exit 0)\nCommand: {command}\n"
                 if result.stdout:
                     stdout = result.stdout.strip()
-                    lines = stdout.split("\n")
-                    max_lines = 100
-                    max_chars = 8000
+                    line_limit = 40
+                    char_limit = 2000
 
-                    if len(lines) > max_lines:
-                        truncated = "\n".join(lines[:max_lines])
+                    lines = stdout.split("\n")
+                    original_line_count = len(lines)
+                    original_char_count = len(stdout)
+
+                    if original_line_count > line_limit:
+                        output_body = "\n".join(lines[:line_limit])
                         output_str += (
-                            f"Output ({len(lines)} lines, showing first {max_lines}):\n"
-                            f"{truncated}\n"
-                            f"... [{len(lines) - max_lines} more lines truncated]\n"
+                            f"Output truncated to {line_limit} lines (of {original_line_count}):\n{output_body}\n"
+                            f"... [{original_line_count - line_limit} more truncated]\n"
                         )
-                    elif len(stdout) > max_chars:
+                    elif original_char_count > char_limit:
                         output_str += (
-                            f"Output (truncated to {max_chars} chars):\n"
-                            f"{stdout[:max_chars]}\n"
-                            f"... [output truncated]\n"
+                            f"Output truncated to {char_limit} chars (of {original_char_count}):\n"
+                            f"{stdout[:char_limit]}\n...\n"
                         )
                     else:
                         output_str += f"Output:\n{stdout}\n"
+
                 dashboard.add_log_entry(
                     ActionType.COMPLETE, "Command succeeded", status="complete"
                 )
