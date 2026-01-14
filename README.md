@@ -23,44 +23,63 @@ Computer Use Agent enables AI to control your computer like a human would. Descr
 
 ## How It Works
 
-```
-                                    ┌─────────────────┐
-                                    │  User Request   │
-                                    └────────┬────────┘
-                                             │
-                                             ▼
-                        ┌────────────────────────────────────────┐
-                        │             Manager Agent              │
-                        │       Analyze → Plan → Delegate        │
-                        └────────────────────┬───────────────────┘
-                                             │
-            ┌────────────────┬───────────────┼───────────────┬────────────────┐
-            │                │               │               │                │
-            ▼                ▼               ▼               ▼                ▼
-┌───────────────────┐ ┌─────────────────────────────┐ ┌───────────────┐ ┌───────────────┐
-│   Browser Agent   │ │         GUI Agent           │ │  System Agent │ │ Coding Agent  │
-├───────────────────┤ ├─────────────────────────────┤ ├───────────────┤ ├───────────────┤
-│                   │ │                             │ │               │ │               │
-│  web_automation   │ │  open_application           │ │ execute_shell │ │    coding     │
-│                   │ │  get_accessible_elements    │ │   _command    │ │  _automation  │
-│                   │ │  click_element              │ │               │ │               │
-│                   │ │  type_text                  │ └───────┬───────┘ └───────┬───────┘
-│                   │ │  read_screen_text           │         │                 │
-│                   │ │  scroll                     │         │                 │
-│                   │ │  get_window_image           │         │                 │
-│                   │ │  check_app_running          │         │                 │
-│                   │ │  list_running_apps          │         │                 │
-│                   │ │  request_human_input        │         │                 │
-│                   │ │  find_application           │         │                 │
-│                   │ │                             │         │                 │
-└─────────┬─────────┘ └──────────────┬──────────────┘         │                 │
-          │                          │                        │                 │
-          └──────────────────────────┴────────────────────────┴─────────────────┘
-                                             │
-                                             ▼
-                                ┌────────────────────────┐
-                                │   Aggregated Results   │
-                                └────────────────────────┘
+```mermaid
+%%{init: {'theme': 'neutral', 'themeVariables': { 'fontSize': '14px' }}}%%
+flowchart TB
+    subgraph Input
+        A([User Request])
+    end
+
+    subgraph Orchestration
+        B[Manager Agent]
+        B1[Analyze] --> B2[Plan] --> B3[Delegate]
+    end
+
+    subgraph BrowserAgent [Browser Agent]
+        BA9[paste_text]
+        BA10[type_to_focused]
+        BA11[get_phone_number]
+        BA12[get_verify_code]
+        BA13[request_human_help]
+        BA14[generate_image]
+        BA15[delegate_to_gui]
+    end
+
+    subgraph GUIAgent [GUI Agent]
+        GA1[open_application]
+        GA2[get_accessible_elements]
+        GA3[click_element]
+        GA4[type_text]
+        GA5[read_screen_text]
+        GA6[scroll]
+        GA7[get_window_image]
+        GA8[check_app_running]
+        GA9[list_running_apps]
+        GA10[request_human_input]
+        GA11[find_application]
+    end
+
+    subgraph SystemAgent [System Agent]
+        SA1[execute_shell_command]
+    end
+
+    subgraph CodingAgent [Coding Agent]
+        CA1[coding_automation]
+    end
+
+    subgraph Output
+        Z([Aggregated Results])
+    end
+
+    A --> B
+    B3 --> BrowserAgent
+    B3 --> GUIAgent
+    B3 --> SystemAgent
+    B3 --> CodingAgent
+    BrowserAgent --> Z
+    GUIAgent --> Z
+    SystemAgent --> Z
+    CodingAgent --> Z
 ```
 
 1. **Manager Agent** receives your request and breaks it into subtasks
@@ -97,11 +116,32 @@ For detailed architecture, see [docs/ARCHITECTURE_OVERVIEW.md](docs/ARCHITECTURE
 | `list_running_apps`       | List all running applications                      |
 | `request_human_input`     | Escalate to human for CAPTCHAs, 2FA, or decisions  |
 
-### Web Tools
+### Web Tools (Browser Agent)
 
-| Tool             | Description                                                                          |
-| ---------------- | ------------------------------------------------------------------------------------ |
-| `web_automation` | Full browser automation via Browser-Use (navigation, forms, downloads, verification) |
+**Browser-Use Core Actions:**
+
+| Tool              | Description                     |
+| ----------------- | ------------------------------- |
+| `go_to_url`       | Navigate to a URL               |
+| `click_element`   | Click on page elements          |
+| `input_text`      | Type text into form fields      |
+| `scroll_down/up`  | Scroll the page                 |
+| `extract_content` | Extract text/data from pages    |
+| `upload_file`     | Upload files to web forms       |
+| `screenshot`      | Capture page screenshots        |
+| `wait`            | Wait for elements or conditions |
+
+**Custom Browser Tools:**
+
+| Tool                 | Description                                            |
+| -------------------- | ------------------------------------------------------ |
+| `paste_text`         | Instant text paste via JavaScript (faster than typing) |
+| `type_to_focused`    | Type into canvas editors (Google Docs, Notion, Figma)  |
+| `get_phone_number`   | Get Twilio number for SMS verification                 |
+| `get_verify_code`    | Wait for and retrieve SMS verification code            |
+| `request_human_help` | Request human help for CAPTCHAs, 2FA, QR codes         |
+| `generate_image`     | Generate AI images using Gemini for ads/marketing      |
+| `delegate_to_gui`    | Delegate OS-native dialogs to GUI agent                |
 
 ### System Tools
 
