@@ -572,7 +572,9 @@ CRITICAL REMINDERS:
                 dashboard.update_token_usage(prompt, completion)
 
             tool_count = dashboard._task.total_tools if dashboard._task else 0
-            if tool_count == 0:
+            external_work_done = dashboard.has_external_work_executed()
+
+            if tool_count == 0 and not external_work_done:
                 print_failure(
                     "Warning: Agent claimed success without calling any tools"
                 )

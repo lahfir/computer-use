@@ -994,8 +994,37 @@ class DashboardManager:
         pass
 
     def set_browser_session(self, active: bool, profile: Optional[str] = None) -> None:
-        """Legacy API: Set browser session state."""
-        pass
+        """
+        Track browser session state.
+
+        When active is True, marks that the browser agent has executed work.
+        This is used to avoid false-positive hallucination detection.
+        """
+        if self._task and active:
+            self._task.browser_agent_executed = True
+            self._task.external_tools_executed = True
+
+    def mark_external_tool_executed(self) -> None:
+        """
+        Mark that an external tool system has executed work.
+
+        Used by tools that use their own sub-agents (browser-use, coding agents, etc.)
+        to prevent false-positive hallucination detection when the main tool counter
+        stays at 0 but real work was performed.
+        """
+        if self._task:
+            self._task.external_tools_executed = True
+
+    def has_external_work_executed(self) -> bool:
+        """
+        Check if any external tool system has executed work.
+
+        Returns True if browser agent or other external tools performed work,
+        even if the main tool counter is 0.
+        """
+        if not self._task:
+            return False
+        return self._task.external_tools_executed or self._task.browser_agent_executed
 
     def refresh(self) -> None:
         """Legacy API: Force refresh."""

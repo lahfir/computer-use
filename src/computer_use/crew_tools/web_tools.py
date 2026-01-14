@@ -90,6 +90,8 @@ class WebAutomationTool(InstrumentedBaseTool):
             dashboard.set_agent("Browser Agent")
             dashboard.set_thinking(f"Web automation: {task[:80]}...")
 
+        dashboard.mark_external_tool_executed()
+
         dashboard.add_log_entry(
             ActionType.NAVIGATE, f"WebAutomationTool executing: {task}"
         )

@@ -118,6 +118,8 @@ class TaskState:
     token_output: int = 0
     total_tools: int = 0
     failed_tools: int = 0
+    browser_agent_executed: bool = False
+    external_tools_executed: bool = False
 
     def get_agent(self, name: str) -> AgentState:
         # Check if agent exists by name
