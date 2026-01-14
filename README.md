@@ -23,22 +23,24 @@ Computer Use Agent enables AI to control your computer like a human would. Descr
 
 ## How It Works
 
-```
-User Request
-    ↓
-Manager Agent (LLM-powered task decomposition)
-    ├─ Analyzes intent
-    ├─ Creates execution plan
-    └─ Delegates to specialists
-    ↓
-┌──────────────┬──────────────┬──────────────┬──────────────┐
-│ Browser Agent│  GUI Agent   │ System Agent │ Coding Agent │
-│  (web tasks) │(desktop apps)│  (terminal)  │ (code tasks) │
-└──────┬───────┴──────┬───────┴──────┬───────┴──────┬───────┘
-       │              │              │              │
-       └──────────────┴──────────────┴──────────────┘
-                              ↓
-                      Aggregated Results
+```mermaid
+flowchart TD
+    A[User Request] --> B
+
+    subgraph orchestration [Manager Agent]
+        B[Analyze Intent] --> C[Create Execution Plan] --> D[Delegate to Specialists]
+    end
+
+    D --> E & F & G & H
+
+    subgraph specialists [Specialist Agents]
+        E[Browser Agent]
+        F[GUI Agent]
+        G[System Agent]
+        H[Coding Agent]
+    end
+
+    E & F & G & H --> I[Aggregated Results]
 ```
 
 1. **Manager Agent** receives your request and breaks it into subtasks
