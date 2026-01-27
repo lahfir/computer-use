@@ -361,7 +361,27 @@ class TypeTextTool(InstrumentedBaseTool):
                 error="No text provided",
             )
 
-        is_hotkey = "+" in text and len(text.split("+")) <= 4
+        hotkey_sequences: list[list[str]] = []
+        if "+" in text:
+            candidates = [c.strip() for c in text.split(",") if c.strip()]
+            for candidate in candidates:
+                if "+" not in candidate:
+                    hotkey_sequences = []
+                    break
+                parts = [p.strip().lower() for p in candidate.split("+") if p.strip()]
+                if not (2 <= len(parts) <= 4):
+                    hotkey_sequences = []
+                    break
+
+                key_map = {
+                    "cmd": "command",
+                    "ctrl": "ctrl",
+                    "alt": "alt",
+                    "shift": "shift",
+                }
+                hotkey_sequences.append([key_map.get(k, k) for k in parts])
+
+        is_hotkey = len(hotkey_sequences) > 0
 
         if is_hotkey and require_app:
             from ..services.state_observer import StateObserver
@@ -396,15 +416,12 @@ class TypeTextTool(InstrumentedBaseTool):
 
         try:
             if is_hotkey:
-                keys = [k.strip().lower() for k in text.split("+")]
-                key_map = {
-                    "cmd": "command",
-                    "ctrl": "ctrl",
-                    "alt": "alt",
-                    "shift": "shift",
-                }
-                mapped_keys = [key_map.get(k, k) for k in keys]
-                input_tool.hotkey(*mapped_keys)
+                import time
+
+                timing = get_timing_config()
+                for keys in hotkey_sequences:
+                    input_tool.hotkey(*keys)
+                    time.sleep(timing.ui_state_change_delay)
                 return ActionResult(
                     success=True,
                     action_taken=f"Pressed hotkey: {text}",

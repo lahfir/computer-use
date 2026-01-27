@@ -151,7 +151,6 @@ async def main(
 
     _restore_original_streams()
 
-    conversation_history = []
     esc_pressed = {"value": False}
 
     def on_key_press(key):
@@ -196,9 +195,7 @@ async def main(
                 esc_pressed["value"] = False
                 ComputerUseCrew.clear_cancellation()
 
-                task_future = asyncio.create_task(
-                    crew.execute_task(task, conversation_history)
-                )
+                task_future = asyncio.create_task(crew.execute_task(task, None))
 
                 while not task_future.done():
                     if esc_pressed["value"]:
@@ -220,10 +217,6 @@ async def main(
 
                 if not task_future.cancelled():
                     result = await task_future
-                    conversation_history.append({"user": task, "result": result})
-
-                    if len(conversation_history) > 10:
-                        conversation_history = conversation_history[-10:]
 
                     add_to_task_history(task)
                     print_task_result(result)

@@ -158,12 +158,15 @@ class RenderManager:
 
     def _pause_status(self) -> None:
         """Temporarily hide status spinner before printing."""
-        if self._status is not None:
-            try:
-                self._status.stop()
-            except Exception:
-                pass
-            self._status = None
+        if self._status is None:
+            return
+
+        try:
+            self._status.stop()
+        except Exception:
+            pass
+
+        self._status = None
 
     def _resume_status(self) -> None:
         """Resume status spinner after printing."""

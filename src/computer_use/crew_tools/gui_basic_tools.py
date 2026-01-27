@@ -1037,7 +1037,19 @@ class GetAccessibleElementsTool(InstrumentedBaseTool):
             _get_elements_state["last_hash"] = current_hash
 
             brief_summary = _format_elements_brief(normalized_elements)
-            data_elements = normalized_elements[:200]
+
+            data_elements = []
+            for e in selected:
+                data_elements.append(
+                    {
+                        "element_id": e.get("element_id", ""),
+                        "identifier": e.get("identifier", ""),
+                        "role": e.get("role", ""),
+                        "label": e.get("label", ""),
+                        "title": e.get("title", ""),
+                        "center": e.get("center", []),
+                    }
+                )
 
             return ActionResult(
                 success=True,
@@ -1049,7 +1061,8 @@ class GetAccessibleElementsTool(InstrumentedBaseTool):
                 confidence=1.0,
                 data={
                     "elements": data_elements,
-                    "count": len(data_elements),
+                    "returned_count": len(data_elements),
+                    "total_count": len(normalized_elements),
                 },
             )
 

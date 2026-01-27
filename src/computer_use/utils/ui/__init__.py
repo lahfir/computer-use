@@ -126,7 +126,13 @@ def prompt_human_assistance(reason: str, instructions: str) -> HumanAssistanceRe
 
 def print_command_approval(command: str) -> str:
     """Display command approval dialog using singleton console."""
-    return _print_command_approval(console, command)
+    return _print_command_approval(
+        console,
+        command,
+        "3",
+        "1",
+        "2",
+    )
 
 
 def print_task_result(result):

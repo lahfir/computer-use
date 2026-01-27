@@ -263,6 +263,61 @@ class TestToolOutputCorrectness:
         assert "(e_" in result.action_taken
         assert result.action_taken.count("(e_") <= 25
 
+    def test_get_accessible_elements_data_payload_is_compact(self, mock_registry):
+        """GetAccessibleElementsTool should keep returned element payload compact."""
+        from src.computer_use.crew_tools.gui_basic_tools import (
+            GetAccessibleElementsTool,
+        )
+
+        many = []
+        for i in range(80):
+            many.append(
+                {
+                    "element_id": f"e_{i:07d}",
+                    "role": "Button",
+                    "label": f"Button {i}",
+                    "title": f"Button {i}",
+                    "bounds": [0, 0, 10, 10],
+                    "center": [i, i],
+                    "category": "interactive",
+                }
+            )
+        for i in range(5):
+            many.append(
+                {
+                    "element_id": f"e_tf{i:05d}",
+                    "role": "TextField",
+                    "label": f"Field {i}",
+                    "title": f"Field {i}",
+                    "bounds": [0, 0, 10, 10],
+                    "center": [i, i],
+                    "category": "interactive",
+                }
+            )
+
+        mock_registry.get_tool("accessibility").get_elements = Mock(return_value=many)
+
+        tool = GetAccessibleElementsTool()
+        tool._tool_registry = mock_registry
+
+        with patch(
+            "src.computer_use.crew_tools.gui_basic_tools.check_cancellation",
+            return_value=None,
+        ):
+            result = tool._run(app_name="Calculator")
+
+        assert result.success is True
+        assert "elements" in (result.data or {})
+        assert "total_count" in result.data
+        assert "returned_count" in result.data
+        assert result.data["total_count"] == len(many)
+        assert result.data["returned_count"] <= 20
+
+        for elem in result.data["elements"]:
+            assert "element_id" in elem
+            assert "center" in elem
+            assert "bounds" not in elem
+
     def test_click_element_with_id_returns_correct_action(self, mock_registry):
         """ClickElementTool with element_id should return native click action."""
         from src.computer_use.crew_tools.gui_interaction_tools import ClickElementTool
@@ -313,6 +368,24 @@ class TestToolOutputCorrectness:
             "hotkey" in result.action_taken.lower()
             or "cmd+c" in result.action_taken.lower()
         )
+
+    def test_type_text_hotkey_sequence_executes_multiple(self, mock_registry):
+        """TypeTextTool should support comma-separated hotkey sequences."""
+        from src.computer_use.crew_tools.gui_interaction_tools import TypeTextTool
+
+        mock_input = mock_registry.get_tool("input")
+        mock_input.hotkey = Mock()
+
+        tool = TypeTextTool()
+        tool._tool_registry = mock_registry
+
+        with patch("time.sleep", return_value=None):
+            result = tool._run(text="cmd+a, cmd+c")
+
+        assert result.success is True
+        assert mock_input.hotkey.call_count == 2
+        mock_input.hotkey.assert_any_call("command", "a")
+        mock_input.hotkey.assert_any_call("command", "c")
 
 
 class TestToolOutputMismatchPrevention:

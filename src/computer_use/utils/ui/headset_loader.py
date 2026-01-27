@@ -142,6 +142,7 @@ class HeadsetLoader:
         self._running = False
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
+        self._stop_event = threading.Event()
         self._frame_idx = 0
 
     def _get_actual_size(self) -> SizeType:
@@ -227,7 +228,7 @@ class HeadsetLoader:
                 live.update(self._render_frame(is_on))
                 is_on = not is_on
                 self._frame_idx += 1
-                time.sleep(self._blink_interval)
+                self._stop_event.wait(self._blink_interval)
 
     def start(self) -> None:
         """Start the loading animation."""
@@ -235,6 +236,7 @@ class HeadsetLoader:
             if self._running:
                 return
             self._running = True
+            self._stop_event.clear()
             self._thread = threading.Thread(target=self._animation_loop, daemon=True)
             self._thread.start()
 
@@ -244,10 +246,11 @@ class HeadsetLoader:
             if not self._running:
                 return
             self._running = False
+            self._stop_event.set()
 
         if self._thread:
-            self._thread.join(timeout=1.0)
-            self._thread = None
+            self._thread.join(timeout=0.2)
+        self._thread = None
 
     def set_message(self, message: str) -> None:
         """Update the loading message."""
