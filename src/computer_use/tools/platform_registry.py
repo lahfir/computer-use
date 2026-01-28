@@ -7,9 +7,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any, List, Optional, Union
 
 from .system import FileTool, InputTool, ProcessTool, ScreenshotTool
-from .accessibility.macos_accessibility import MacOSAccessibility
-from .accessibility.windows_accessibility import WindowsAccessibility
-from .accessibility.linux_accessibility import LinuxAccessibility
+from .accessibility import (
+    MacOSAccessibility,
+    WindowsAccessibility,
+    LinuxAccessibility,
+    get_accessibility_tool,
+)
 from .vision.ocr_tool import OCRTool
 from .vision.template_matcher import TemplateMatcher
 from .vision.element_detector import ElementDetector

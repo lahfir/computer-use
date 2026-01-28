@@ -352,11 +352,6 @@ class TypeTextTool(InstrumentedBaseTool):
         Returns:
             ActionResult with typing details
         """
-        # #region agent log
-        import json as _jtype
-        open("/Users/lahfir/Documents/Projects/computer-use/.cursor/debug.log", "a").write(_jtype.dumps({"location": "gui_interaction_tools.py:type_text", "message": "Type requested", "data": {"text_preview": text[:100] if text else None, "text_len": len(text) if text else 0, "use_clipboard": use_clipboard, "require_app": require_app}, "hypothesisId": "H", "timestamp": __import__("time").time()}) + "\n")
-        # #endregion
-
         if not text:
             return ActionResult(
                 success=False,

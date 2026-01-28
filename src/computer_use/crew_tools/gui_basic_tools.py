@@ -178,7 +178,11 @@ class OpenApplicationTool(InstrumentedBaseTool):
 
     def _run(self, app_name: str, explanation: Optional[str] = None) -> ActionResult:
         """
-        Open application and WAIT for it to become active window.
+        Open application without blocking for frontmost status.
+
+        Accessibility API clicks work WITHOUT the app being frontmost.
+        Only coordinate-based clicks (pyautogui) require frontmost.
+        This tool now returns success as soon as the app is running.
 
         Args:
             app_name: Application name
@@ -207,36 +211,36 @@ class OpenApplicationTool(InstrumentedBaseTool):
                     error=result.get("message", "Launch failed"),
                 )
 
+            get_app_state().set_target_app(app_name)
+
             timing = get_timing_config()
-            max_attempts = timing.app_launch_max_attempts
+            max_attempts = 5
             wait_interval = timing.app_launch_retry_interval
 
             for attempt in range(max_attempts):
+                time.sleep(wait_interval)
+
                 try:
                     process_tool.focus_app(app_name)
                 except Exception:
                     pass
 
-                time.sleep(wait_interval)
-
-                if accessibility_tool and hasattr(
-                    accessibility_tool, "is_app_frontmost"
-                ):
-                    is_front = accessibility_tool.is_app_frontmost(app_name)
-                    if is_front:
-                        if hasattr(accessibility_tool, "set_active_app"):
-                            accessibility_tool.set_active_app(app_name)
-
-                        get_app_state().set_target_app(app_name)
+                if accessibility_tool and hasattr(accessibility_tool, "get_app"):
+                    app_ref = accessibility_tool.get_app(app_name)
+                    if app_ref:
+                        is_frontmost = False
+                        if hasattr(accessibility_tool, "is_app_frontmost"):
+                            is_frontmost = accessibility_tool.is_app_frontmost(app_name)
 
                         return ActionResult(
                             success=True,
-                            action_taken=f"Opened and focused {app_name} (frontmost verified, attempt {attempt + 1})",
-                            method_used="accessibility_frontmost",
+                            action_taken=f"Opened {app_name}. Ready for accessibility operations.",
+                            method_used="accessibility_ready",
                             confidence=1.0,
                             data={
-                                "wait_time": (attempt + 1) * wait_interval,
-                                "is_frontmost": True,
+                                "is_running": True,
+                                "is_frontmost": is_frontmost,
+                                "wait_attempts": attempt + 1,
                             },
                         )
 
@@ -245,56 +249,24 @@ class OpenApplicationTool(InstrumentedBaseTool):
                 is_running = process_tool.is_process_running(app_name)
 
             if is_running:
-                try:
-                    process_tool.focus_app(app_name)
-                except Exception:
-                    pass
-
-                if accessibility_tool and hasattr(accessibility_tool, "set_active_app"):
-                    accessibility_tool.set_active_app(app_name)
-                get_app_state().set_target_app(app_name)
-
                 return ActionResult(
                     success=True,
-                    action_taken=f"Opened {app_name} (running, focus attempted)",
+                    action_taken=f"Opened {app_name} (process running, accessibility pending).",
                     method_used="process_running",
                     confidence=0.8,
                     data={
-                        "wait_time": max_attempts * wait_interval,
-                        "is_frontmost": False,
                         "is_running": True,
-                        "note": "App is running. Terminal may have stolen focus. Use get_accessible_elements to verify.",
+                        "is_frontmost": False,
+                        "note": "App running but accessibility not ready. May need to wait.",
                     },
                 )
 
-            running_apps = []
-            try:
-                if accessibility_tool and hasattr(
-                    accessibility_tool, "get_running_app_names"
-                ):
-                    running_apps = accessibility_tool.get_running_app_names()[:15]
-            except Exception:
-                pass
-
-            current_frontmost = None
-            try:
-                if accessibility_tool and hasattr(
-                    accessibility_tool, "get_frontmost_app"
-                ):
-                    current_frontmost = accessibility_tool.get_frontmost_app()
-            except Exception:
-                pass
-
-            suggestion = f" Current frontmost: {current_frontmost or 'unknown'}."
-            if running_apps:
-                suggestion += f" Running GUI apps: {running_apps}."
-
             return ActionResult(
                 success=False,
-                action_taken=f"Launched {app_name} but it didn't become frontmost",
-                method_used="accessibility",
+                action_taken=f"Launched {app_name} but process not detected",
+                method_used="process",
                 confidence=0.3,
-                error=f"'{app_name}' launched but not frontmost after {max_attempts * wait_interval:.1f}s.{suggestion}",
+                error=f"'{app_name}' launch command succeeded but process not running. Check app name spelling.",
             )
 
         except Exception as e:
@@ -630,6 +602,14 @@ INPUT_PRIORITY_ROLES = frozenset(
         "entry",
     }
 )
+"""
+INPUT_PRIORITY_ROLES: Roles used for DISPLAY SORTING only.
+
+These roles are NOT used for filtering elements from the accessibility API.
+All elements returned by the accessibility API are included regardless of role.
+This set only affects display order: input fields are shown first to the LLM
+since they're commonly needed for interaction (typing, form filling).
+"""
 
 
 def _get_element_priority(element: dict) -> tuple:
@@ -736,7 +716,9 @@ def _select_smart_compact_elements(
         role = (e.get("role") or "").lower()
         unique = 0 if label_counts.get(label, 0) == 1 else 1
         is_list_item = role in ("group", "cell", "row")
-        length = -len(label) if (is_list_item and label) else (len(label) if label else 999)
+        length = (
+            -len(label) if (is_list_item and label) else (len(label) if label else 999)
+        )
         center = e.get("center") or [9999, 9999]
         return (unique, length, center[1], center[0])
 
@@ -755,44 +737,6 @@ def _select_smart_compact_elements(
             seen_ids.add(eid)
 
     remaining_slots = max(0, max_total - len(selected))
-
-    # #region agent log
-    import json as _json
-
-    role_distribution = {}
-    for e in elements:
-        r = e.get("role", "unknown")
-        role_distribution[r] = role_distribution.get(r, 0) + 1
-    pondatti_elements = [
-        e for e in elements if "pondatti" in (e.get("label") or "").lower()
-    ]
-    group_elements = [e for e in elements if (e.get("role") or "").lower() == "group"]
-    open("/Users/lahfir/Documents/Projects/computer-use/.cursor/debug.log", "a").write(
-        _json.dumps(
-            {
-                "location": "gui_basic_tools.py:_select_smart_compact:roles",
-                "message": "Element role distribution",
-                "data": {
-                    "role_counts": role_distribution,
-                    "pondatti_elements": [
-                        {
-                            "role": e.get("role"),
-                            "label": e.get("label")[:50] if e.get("label") else None,
-                            "element_id": e.get("element_id"),
-                        }
-                        for e in pondatti_elements[:5]
-                    ],
-                    "all_group_labels": [
-                        (e.get("label") or "")[:40] for e in group_elements[:20]
-                    ],
-                },
-                "hypothesisId": "F",
-                "timestamp": __import__("time").time(),
-            }
-        )
-        + "\n"
-    )
-    # #endregion
 
     role_priority = [
         ("Button", 12),
@@ -848,13 +792,6 @@ def _format_elements_smart_compact(selected: list[dict], hidden_count: int) -> s
     input_fields: list[str] = []
     by_role: dict[str, list[str]] = {}
 
-    # #region agent log
-    import json as _jfmt
-    textareas = [e for e in selected if (e.get("role") or "").lower() == "textarea"]
-    if textareas:
-        open("/Users/lahfir/Documents/Projects/computer-use/.cursor/debug.log", "a").write(_jfmt.dumps({"location": "gui_basic_tools.py:format:all_textareas", "message": "All TextAreas in selected", "data": {"count": len(textareas), "textareas": [{"label": (e.get("label") or "")[:40], "eid": e.get("element_id"), "is_bottom": e.get("is_bottom"), "is_focused": e.get("focused"), "center": e.get("center")} for e in textareas[:10]]}, "hypothesisId": "G", "timestamp": __import__("time").time()}) + "\n")
-    # #endregion
-
     for e in selected:
         role = e.get("role") or "Other"
         label = (e.get("label") or "").strip()
@@ -884,14 +821,15 @@ def _format_elements_smart_compact(selected: list[dict], hidden_count: int) -> s
         elif is_input_role and role_lower == "textarea":
             label_preview = label[:30] + "…" if len(label) > 30 else label
             label_lower = label.lower()
-            is_placeholder = label_lower in ("", "message", "imessage", "type a message", "text message")
+            is_placeholder = label_lower in (
+                "",
+                "message",
+                "imessage",
+                "type a message",
+                "text message",
+            )
             is_empty_or_placeholder = is_placeholder or not label
             is_likely_input = is_focused or is_empty_or_placeholder
-            # #region agent log
-            import json as _j2
-            if is_bottom or is_focused or is_empty_or_placeholder:
-                open("/Users/lahfir/Documents/Projects/computer-use/.cursor/debug.log", "a").write(_j2.dumps({"location": "gui_basic_tools.py:format:textarea", "message": "TextArea check", "data": {"label": label[:40] if label else None, "eid": eid, "is_bottom": is_bottom, "is_focused": is_focused, "is_empty_or_placeholder": is_empty_or_placeholder, "is_likely_input": is_likely_input}, "hypothesisId": "G", "timestamp": __import__("time").time()}) + "\n")
-            # #endregion
             if is_likely_input:
                 display = f"{focus_marker}{label_preview or '[empty]'}{pos_hint}({eid})"
                 input_fields.append(f"TextArea(input): {display.strip()}")
@@ -990,32 +928,6 @@ class GetAccessibleElementsTool(InstrumentedBaseTool):
             )
 
         accessibility_tool = self._tool_registry.get_tool("accessibility")
-
-        # #region agent log
-        import json
-
-        open(
-            "/Users/lahfir/Documents/Projects/computer-use/.cursor/debug.log", "a"
-        ).write(
-            json.dumps(
-                {
-                    "location": "gui_basic_tools.py:GetAccessibleElementsTool:_run",
-                    "message": "Tool _run called",
-                    "data": {
-                        "app_name": app_name,
-                        "accessibility_available": (
-                            accessibility_tool.available
-                            if accessibility_tool
-                            else False
-                        ),
-                    },
-                    "hypothesisId": "A,C",
-                    "timestamp": __import__("time").time(),
-                }
-            )
-            + "\n"
-        )
-        # #endregion
 
         if not accessibility_tool or not accessibility_tool.available:
             return ActionResult(
@@ -1174,31 +1086,6 @@ class GetAccessibleElementsTool(InstrumentedBaseTool):
                         "center": e.get("center", []),
                     }
                 )
-
-            # #region agent log
-            import json as _json
-
-            open(
-                "/Users/lahfir/Documents/Projects/computer-use/.cursor/debug.log", "a"
-            ).write(
-                _json.dumps(
-                    {
-                        "location": "gui_basic_tools.py:GetAccessibleElementsTool:output",
-                        "message": "Final output to agent",
-                        "data": {
-                            "app_name": app_name,
-                            "total_elements": len(normalized_elements),
-                            "selected_count": len(selected),
-                            "hidden_count": hidden_count,
-                            "elements_summary_preview": elements_summary[:500],
-                        },
-                        "hypothesisId": "F",
-                        "timestamp": __import__("time").time(),
-                    }
-                )
-                + "\n"
-            )
-            # #endregion
 
             return ActionResult(
                 success=True,
@@ -1439,4 +1326,145 @@ class RequestHumanInputTool(InstrumentedBaseTool):
                 method_used="human_input",
                 confidence=0.0,
                 error="User cancelled the task",
+            )
+
+
+class SearchElementsInput(BaseModel):
+    """Input for searching elements."""
+
+    query: str = Field(
+        description="Search query to find elements by label (partial match)"
+    )
+    app_name: Optional[str] = Field(
+        default=None,
+        description="Application name. If not provided, uses current target app.",
+    )
+    role_filter: Optional[str] = Field(
+        default=None,
+        description="Filter by element role (Button, TextField, MenuItem, etc.)",
+    )
+    max_results: int = Field(
+        default=20,
+        description="Maximum number of results to return",
+    )
+
+
+class SearchElementsTool(InstrumentedBaseTool):
+    """
+    Search for elements beyond the top 30 displayed by get_accessible_elements.
+
+    Use this tool when you need to find a specific element that wasn't in the
+    initial list, or when you need to search for elements by partial label.
+    """
+
+    name: str = "search_elements"
+    description: str = (
+        "Search for UI elements by label. Use when element not in top 30."
+    )
+    args_schema: type[BaseModel] = SearchElementsInput
+
+    def _run(
+        self,
+        query: str,
+        app_name: Optional[str] = None,
+        role_filter: Optional[str] = None,
+        max_results: int = 20,
+    ) -> ActionResult:
+        """
+        Search for elements matching a query.
+
+        Args:
+            query: Search query (partial match on label)
+            app_name: Application name (optional, uses current target)
+            role_filter: Optional role filter
+            max_results: Maximum results to return
+
+        Returns:
+            ActionResult with matching elements
+        """
+        if cancelled := check_cancellation():
+            return cancelled
+
+        effective_app = get_app_state().get_effective_app(app_name)
+        if not effective_app:
+            return ActionResult(
+                success=False,
+                action_taken="No application specified",
+                method_used="search_elements",
+                confidence=0.0,
+                error="No app_name provided and no target app set.",
+            )
+
+        accessibility_tool = self._tool_registry.get_tool("accessibility")
+
+        if not accessibility_tool or not accessibility_tool.available:
+            return ActionResult(
+                success=False,
+                action_taken="Accessibility not available",
+                method_used="search_elements",
+                confidence=0.0,
+                error="Accessibility API unavailable",
+            )
+
+        try:
+            elements = accessibility_tool.get_elements(
+                effective_app, interactive_only=True, use_cache=True
+            )
+
+            if not elements:
+                return ActionResult(
+                    success=True,
+                    action_taken=f"No elements found in {effective_app}",
+                    method_used="search_elements",
+                    confidence=1.0,
+                    data={"results": [], "count": 0},
+                )
+
+            from ..services.element_index import index_elements, search_elements
+
+            index_elements(elements)
+            results = search_elements(query, role_filter, max_results)
+
+            if not results:
+                return ActionResult(
+                    success=True,
+                    action_taken=f"No elements matching '{query}' found in {effective_app}",
+                    method_used="search_elements",
+                    confidence=1.0,
+                    data={"results": [], "count": 0, "total_indexed": len(elements)},
+                )
+
+            result_list = []
+            output_lines = [f"Found {len(results)} elements matching '{query}':\n"]
+
+            for r in results:
+                result_list.append(
+                    {
+                        "element_id": r.element_id,
+                        "label": r.label,
+                        "role": r.role,
+                        "score": r.match_score,
+                    }
+                )
+                output_lines.append(f"  {r.role}: {r.label[:40]}({r.element_id})")
+
+            return ActionResult(
+                success=True,
+                action_taken="\n".join(output_lines),
+                method_used="search_elements",
+                confidence=1.0,
+                data={
+                    "results": result_list,
+                    "count": len(results),
+                    "total_indexed": len(elements),
+                },
+            )
+
+        except Exception as e:
+            return ActionResult(
+                success=False,
+                action_taken=f"Search failed in {effective_app}",
+                method_used="search_elements",
+                confidence=0.0,
+                error=str(e),
             )

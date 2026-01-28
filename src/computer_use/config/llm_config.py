@@ -154,7 +154,6 @@ class LLMConfig:
             "model": model_name,
             "api_key": api_key,
             "timeout": llm_timeout,
-            "num_retries": 5,
         }
 
         if reasoning_effort:
@@ -162,22 +161,37 @@ class LLMConfig:
 
         llm = LLM(**llm_kwargs)
 
-        if dashboard.is_verbose:
-            original_call = llm.call
+        original_call = llm.call
+        max_empty_retries = 3
 
-            def debug_call(*args, **kwargs):
-                import time
+        def robust_call(*args, **kwargs):
+            import time
 
+            for attempt in range(max_empty_retries):
                 t0 = time.time()
                 try:
                     result = original_call(*args, **kwargs)
-                    print(f"[LLM OK] {model_name} ({time.time() - t0:.1f}s)")
+                    if result is None or result == "":
+                        if attempt < max_empty_retries - 1:
+                            if dashboard.is_verbose:
+                                print(
+                                    f"[LLM EMPTY] {model_name} attempt {attempt + 1}, retrying..."
+                                )
+                            time.sleep(0.5 * (attempt + 1))
+                            continue
+                        if dashboard.is_verbose:
+                            print(f"[LLM EMPTY] {model_name} all retries failed")
+                        return "I apologize, but I couldn't generate a response. Please try again."
+                    if dashboard.is_verbose:
+                        print(f"[LLM OK] {model_name} ({time.time() - t0:.1f}s)")
                     return result
                 except Exception as e:
-                    print(f"[LLM FAIL] {model_name}: {type(e).__name__}: {e}")
+                    if dashboard.is_verbose:
+                        print(f"[LLM FAIL] {model_name}: {type(e).__name__}: {e}")
                     raise
+            return "I apologize, but I couldn't generate a response. Please try again."
 
-            llm.call = debug_call
+        llm.call = robust_call
 
         LLMConfig._llm_cache[cache_key] = llm
         return llm
