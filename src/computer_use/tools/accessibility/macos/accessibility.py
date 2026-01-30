@@ -10,7 +10,6 @@ Design principles:
 
 from typing import List, Optional, Dict, Any, Tuple
 import platform
-import time
 
 from ..protocol import AccessibilityProtocol
 from ..element_registry import VersionedElementRegistry
@@ -94,7 +93,20 @@ class MacOSAccessibility(AccessibilityProtocol):
         self._cache.invalidate(app_name)
         self._registry.advance_epoch("cache_invalidation")
 
-    def get_app(self, app_name: str, retry_count: int = 3) -> Optional[Any]:
+    def get_app(self, app_name: str, retry_count: int = 1) -> Optional[Any]:
+        """
+        Get application reference using scored candidate selection.
+
+        Collects all matching candidates, scores them, and returns the
+        highest-scored candidate with windows. No retry loops or sleeps.
+
+        Args:
+            app_name: Name of the application to find
+            retry_count: Deprecated, kept for API compatibility
+
+        Returns:
+            Application reference or None if not found
+        """
         if not self.available or not app_name:
             return None
 
@@ -105,55 +117,62 @@ class MacOSAccessibility(AccessibilityProtocol):
         if cached and self._has_windows(cached):
             return cached
 
-        best_candidate = None
+        candidates = []
 
-        for attempt in range(retry_count):
-            if attempt > 0:
-                self._cache.invalidate_app(cache_key)
-                time.sleep(0.1)
+        try:
+            for running_app in self.atomacos.NativeUIElement.getRunningApps():
+                localized_name = None
+                if hasattr(running_app, "localizedName"):
+                    localized_name = running_app.localizedName()
 
+                if not localized_name:
+                    continue
+
+                if not self._matches_name(localized_name, app_name):
+                    continue
+
+                bundle_id = None
+                if hasattr(running_app, "bundleIdentifier"):
+                    bundle_id = running_app.bundleIdentifier()
+
+                score = self._score_app_match(localized_name, app_name, bundle_id or "")
+                candidates.append((score, localized_name, bundle_id, running_app))
+        except Exception:
+            pass
+
+        candidates.sort(key=lambda x: -x[0])
+
+        for score, name, bundle_id, running_app in candidates:
+            if not bundle_id:
+                continue
             try:
-                for running_app in self.atomacos.NativeUIElement.getRunningApps():
-                    localized_name = None
-                    if hasattr(running_app, "localizedName"):
-                        localized_name = running_app.localizedName()
-
-                    if localized_name and self._matches_name(localized_name, app_name):
-                        bundle_id = None
-                        if hasattr(running_app, "bundleIdentifier"):
-                            bundle_id = running_app.bundleIdentifier()
-
-                        if bundle_id:
-                            try:
-                                app_ref = self.atomacos.getAppRefByBundleId(bundle_id)
-                                if app_ref and self._is_valid_app_ref(app_ref):
-                                    has_windows = self._has_windows(app_ref)
-                                    if has_windows:
-                                        self._cache.set_app(cache_key, app_ref)
-                                        return app_ref
-                                    elif not best_candidate:
-                                        best_candidate = app_ref
-                            except Exception:
-                                continue
+                app_ref = self.atomacos.getAppRefByBundleId(bundle_id)
+                if app_ref and self._has_windows(app_ref):
+                    self._cache.set_app(cache_key, app_ref)
+                    return app_ref
             except Exception:
-                pass
+                continue
 
+        for score, name, bundle_id, running_app in candidates:
+            if not bundle_id:
+                continue
             try:
-                frontmost = self.atomacos.getFrontmostApp()
-                if frontmost:
-                    front_title = getattr(frontmost, "AXTitle", None) or ""
-                    if self._matches_name(str(front_title), app_name):
-                        if self._has_windows(frontmost):
-                            self._cache.set_app(cache_key, frontmost)
-                            return frontmost
-                        elif not best_candidate:
-                            best_candidate = frontmost
+                app_ref = self.atomacos.getAppRefByBundleId(bundle_id)
+                if app_ref and self._is_valid_app_ref(app_ref):
+                    self._cache.set_app(cache_key, app_ref)
+                    return app_ref
             except Exception:
-                pass
+                continue
 
-        if best_candidate:
-            self._cache.set_app(cache_key, best_candidate)
-            return best_candidate
+        try:
+            frontmost = self.atomacos.getFrontmostApp()
+            if frontmost:
+                front_title = getattr(frontmost, "AXTitle", None) or ""
+                if self._matches_name(str(front_title), app_name):
+                    self._cache.set_app(cache_key, frontmost)
+                    return frontmost
+        except Exception:
+            pass
 
         return None
 
@@ -275,6 +294,38 @@ class MacOSAccessibility(AccessibilityProtocol):
         except Exception:
             return False
 
+    def _batch_fetch_attributes(self, node: Any) -> Optional[Dict[str, Any]]:
+        """
+        Fetch all accessibility attributes for a node in one try block.
+
+        Minimizes IPC calls by fetching everything at once instead of
+        making separate getattr calls throughout traversal.
+
+        Args:
+            node: atomacos accessibility node
+
+        Returns:
+            Dictionary of all attributes, or None if fetch failed
+        """
+        try:
+            return {
+                "role": str(getattr(node, "AXRole", "") or ""),
+                "position": getattr(node, "AXPosition", None),
+                "size": getattr(node, "AXSize", None),
+                "title": getattr(node, "AXTitle", None),
+                "description": getattr(node, "AXDescription", None),
+                "value": getattr(node, "AXValue", None),
+                "placeholder": getattr(node, "AXPlaceholderValue", None),
+                "identifier": str(getattr(node, "AXIdentifier", "") or ""),
+                "actions": getattr(node, "AXActions", None) or [],
+                "enabled": bool(getattr(node, "AXEnabled", False)),
+                "focused": bool(getattr(node, "AXFocused", False)),
+                "role_description": str(getattr(node, "AXRoleDescription", "") or ""),
+                "children": getattr(node, "AXChildren", None),
+            }
+        except Exception:
+            return None
+
     def _traverse(
         self,
         node: Any,
@@ -284,10 +335,10 @@ class MacOSAccessibility(AccessibilityProtocol):
         app_name: str = "",
     ) -> bool:
         """
-        Traverse accessibility tree and register elements.
+        Traverse accessibility tree and register elements using batch attribute fetch.
 
-        Dynamic detection: Elements are registered based on their actual
-        capabilities (has_actions, is_enabled), NOT based on hardcoded role lists.
+        Uses _batch_fetch_attributes() to minimize IPC calls to the macOS
+        accessibility daemon. All attributes are fetched once per node.
 
         Args:
             node: Current accessibility node
@@ -302,33 +353,37 @@ class MacOSAccessibility(AccessibilityProtocol):
         if depth > self._max_depth or len(elements) >= self._max_elements:
             return False
 
-        try:
-            role = str(getattr(node, "AXRole", ""))
+        attrs = self._batch_fetch_attributes(node)
+        if attrs is None:
+            return True
 
-            if role == "AXApplication":
-                children = getattr(node, "AXChildren", None)
-                if children:
-                    for child in children:
-                        if not self._traverse(
-                            child, elements, interactive_only, depth + 1, app_name
-                        ):
-                            return False
-                return True
+        role = attrs["role"]
 
-            if not interactive_only or self._is_element_interactive(node):
-                self._register_element(node, app_name, elements)
-
-            children = getattr(node, "AXChildren", None)
+        if role == "AXApplication":
+            children = attrs["children"]
             if children:
                 for child in children:
                     if not self._traverse(
                         child, elements, interactive_only, depth + 1, app_name
                     ):
                         return False
+            return True
 
-            return True
-        except Exception:
-            return True
+        has_actions = attrs["actions"] is not None and len(attrs["actions"]) > 0
+        is_interactive = has_actions or attrs["enabled"]
+
+        if not interactive_only or is_interactive:
+            self._register_element_from_attrs(node, attrs, app_name, elements)
+
+        children = attrs["children"]
+        if children:
+            for child in children:
+                if not self._traverse(
+                    child, elements, interactive_only, depth + 1, app_name
+                ):
+                    return False
+
+        return True
 
     def _register_element(
         self, node: Any, app_name: str, elements: List[Dict[str, Any]]
@@ -356,6 +411,106 @@ class MacOSAccessibility(AccessibilityProtocol):
         normalized["_app_name"] = app_name
 
         elements.append(normalized)
+
+    def _register_element_from_attrs(
+        self,
+        node: Any,
+        attrs: Dict[str, Any],
+        app_name: str,
+        elements: List[Dict[str, Any]],
+    ) -> None:
+        """
+        Register element using pre-fetched attributes (no additional IPC calls).
+
+        Args:
+            node: The native accessibility node reference
+            attrs: Pre-fetched attributes from _batch_fetch_attributes()
+            app_name: Application name
+            elements: List to append the registered element to
+        """
+        pos = attrs.get("position")
+        size = attrs.get("size")
+
+        if pos is None or size is None:
+            return
+
+        try:
+            x, y = pos[0], pos[1]
+            w, h = size[0], size[1]
+        except (IndexError, TypeError):
+            return
+
+        if w <= 0 or h <= 0:
+            return
+
+        label = (
+            attrs.get("title")
+            or attrs.get("description")
+            or (str(attrs.get("value", ""))[:100] if attrs.get("value") else "")
+            or attrs.get("placeholder")
+            or ""
+        )
+        if label:
+            label = str(label)
+
+        normalized = {
+            "role": self._normalize_role(attrs["role"]),
+            "label": label,
+            "identifier": attrs.get("identifier", ""),
+            "app_name": app_name,
+            "center": [int(x + w / 2), int(y + h / 2)],
+            "bounds": [int(x), int(y), int(w), int(h)],
+            "has_actions": len(attrs.get("actions", [])) > 0,
+            "enabled": attrs.get("enabled", True),
+            "focused": attrs.get("focused", False),
+        }
+
+        if normalized["bounds"][0] > self.screen_width * 2:
+            return
+        if normalized["bounds"][1] > self.screen_height * 2:
+            return
+
+        element_id = self._registry.register_element(normalized)
+        normalized["element_id"] = element_id
+        normalized["is_bottom"] = normalized["center"][1] > self.screen_height * 0.75
+        normalized["title"] = label
+        normalized["_element"] = node
+        normalized["_app_name"] = app_name
+
+        elements.append(normalized)
+
+    def _normalize_role(self, ax_role: str) -> str:
+        """
+        Normalize macOS AX role to cross-platform role name.
+
+        Args:
+            ax_role: macOS accessibility role (e.g., "AXButton")
+
+        Returns:
+            Normalized role name (e.g., "Button")
+        """
+        role_map = {
+            "AXButton": "Button",
+            "AXTextField": "TextField",
+            "AXTextArea": "TextArea",
+            "AXStaticText": "StaticText",
+            "AXCheckBox": "CheckBox",
+            "AXRadioButton": "RadioButton",
+            "AXPopUpButton": "PopUpButton",
+            "AXComboBox": "ComboBox",
+            "AXMenuItem": "MenuItem",
+            "AXMenuBarItem": "MenuBarItem",
+            "AXMenuButton": "MenuButton",
+            "AXGroup": "Group",
+            "AXCell": "Cell",
+            "AXRow": "Row",
+            "AXScrollBar": "ScrollBar",
+            "AXTable": "Table",
+            "AXImage": "Image",
+        }
+        return role_map.get(
+            ax_role, ax_role.replace("AX", "") if ax_role.startswith("AX") else ax_role
+        )
 
     def click_by_id(
         self, element_id: str, click_type: str = "single"
@@ -431,7 +586,6 @@ class MacOSAccessibility(AccessibilityProtocol):
                     pyautogui.click(center[0], center[1], button="right")
                 else:
                     pyautogui.click(center[0], center[1])
-                time.sleep(0.05)
                 self._registry.advance_epoch("click")
                 self._cache.on_interaction(app_name if app_name else None)
                 return (
@@ -455,13 +609,11 @@ class MacOSAccessibility(AccessibilityProtocol):
             if normalized == "single":
                 if hasattr(node, "Press") and callable(getattr(node, "Press")):
                     node.Press()
-                    time.sleep(0.05)
                     self._cache.on_interaction(invalidate_target)
                     return (True, f"Clicked '{label}' via Press")
 
                 if hasattr(node, "AXPress") and callable(getattr(node, "AXPress")):
                     node.AXPress()
-                    time.sleep(0.05)
                     self._cache.on_interaction(invalidate_target)
                     return (True, f"Clicked '{label}' via AXPress")
 
@@ -479,7 +631,6 @@ class MacOSAccessibility(AccessibilityProtocol):
                 if any(s in action_lower for s in preferred_substrings):
                     if hasattr(node, action) and callable(getattr(node, action)):
                         getattr(node, action)()
-                        time.sleep(0.05)
                         self._cache.on_interaction(invalidate_target)
                         return (True, f"Clicked '{label}' via {action}")
 
@@ -487,7 +638,6 @@ class MacOSAccessibility(AccessibilityProtocol):
                         getattr(node, "performAction")
                     ):
                         node.performAction(action)
-                        time.sleep(0.05)
                         self._cache.on_interaction(invalidate_target)
                         return (True, f"Clicked '{label}' via {action}")
 
@@ -621,6 +771,54 @@ class MacOSAccessibility(AccessibilityProtocol):
             return False
         n1, n2 = name1.lower(), name2.lower()
         return n1 in n2 or n2 in n1
+
+    def _score_app_match(
+        self, candidate_name: str, search_name: str, bundle_id: str
+    ) -> int:
+        """
+        Score how well a candidate app matches the search name.
+
+        Higher scores indicate better matches. Penalizes helper processes.
+
+        Args:
+            candidate_name: Name of the running application
+            search_name: Name the user searched for
+            bundle_id: Bundle identifier of the app
+
+        Returns:
+            Integer score (higher = better match)
+        """
+        score = 0
+        cn = candidate_name.lower()
+        sn = search_name.lower()
+        bid = (bundle_id or "").lower()
+
+        if cn == sn:
+            score += 1000
+
+        if cn.startswith(sn):
+            score += 500
+
+        helper_name_patterns = [
+            "helper",
+            "agent",
+            "service",
+            "renderer",
+            "gpu",
+            "web content",
+            "extension",
+            "xpc",
+        ]
+        if any(p in cn for p in helper_name_patterns):
+            score -= 500
+
+        helper_bundle_patterns = [".helper", ".agent", "xpcservice", ".renderer"]
+        if any(p in bid for p in helper_bundle_patterns):
+            score -= 500
+
+        score -= len(candidate_name) // 5
+
+        return score
 
     def find_element(
         self, app_name: str, label: str, exact_match: bool = False

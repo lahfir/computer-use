@@ -53,23 +53,21 @@ class AnalyzeImageTool(BaseTool):
             if provider == "google":
                 return self._analyze_with_gemini(image_data, image_path)
             elif provider == "anthropic":
-                return self._analyze_with_anthropic(image_data)
+                return self._analyze_with_anthropic(image_data, image_path)
             else:
-                return self._analyze_with_openai(image_data)
+                return self._analyze_with_openai(image_data, image_path)
 
         except Exception as e:
             return f"Error analyzing image: {str(e)}"
 
     def _analyze_with_gemini(self, image_data: str, image_path: str) -> str:
         """Analyze image using Google Gemini."""
-        import google.generativeai as genai
-        from PIL import Image
+        from google import genai
+        from google.genai import types
 
         api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         if not api_key:
             return "Error: GOOGLE_API_KEY or GEMINI_API_KEY not found"
-
-        genai.configure(api_key=api_key)
 
         model_name = os.getenv("VISION_LLM_MODEL") or os.getenv(
             "LLM_MODEL", "gemini-2.0-flash-exp"
@@ -77,21 +75,40 @@ class AnalyzeImageTool(BaseTool):
         if model_name.startswith("gemini/"):
             model_name = model_name[7:]
 
-        model = genai.GenerativeModel(model_name)
+        mime_type = self._get_mime_type(image_path)
 
-        image = Image.open(image_path)
+        with open(image_path, "rb") as f:
+            image_bytes = f.read()
 
-        response = model.generate_content(
-            [
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=[
+                types.Part.from_bytes(
+                    data=image_bytes,
+                    mime_type=mime_type,
+                ),
                 "Describe this image in detail. What do you see? "
                 "Include any text, UI elements, and notable features.",
-                image,
-            ]
+            ],
         )
 
         return response.text
 
-    def _analyze_with_anthropic(self, image_data: str) -> str:
+    def _get_mime_type(self, image_path: str) -> str:
+        """Get MIME type based on file extension."""
+        ext = os.path.splitext(image_path)[1].lower()
+        mime_types = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+            ".bmp": "image/bmp",
+        }
+        return mime_types.get(ext, "image/png")
+
+    def _analyze_with_anthropic(self, image_data: str, image_path: str) -> str:
         """Analyze image using Anthropic Claude."""
         from anthropic import Anthropic
 
@@ -102,6 +119,7 @@ class AnalyzeImageTool(BaseTool):
         client = Anthropic(api_key=api_key)
 
         model_name = os.getenv("VISION_LLM_MODEL") or "claude-3-5-sonnet-20241022"
+        mime_type = self._get_mime_type(image_path)
 
         response = client.messages.create(
             model=model_name,
@@ -114,7 +132,7 @@ class AnalyzeImageTool(BaseTool):
                             "type": "image",
                             "source": {
                                 "type": "base64",
-                                "media_type": "image/png",
+                                "media_type": mime_type,
                                 "data": image_data,
                             },
                         },
@@ -130,7 +148,7 @@ class AnalyzeImageTool(BaseTool):
 
         return response.content[0].text
 
-    def _analyze_with_openai(self, image_data: str) -> str:
+    def _analyze_with_openai(self, image_data: str, image_path: str) -> str:
         """Analyze image using OpenAI GPT-4 Vision."""
         from openai import OpenAI
 
@@ -141,28 +159,26 @@ class AnalyzeImageTool(BaseTool):
         client = OpenAI(api_key=api_key)
 
         model_name = os.getenv("VISION_LLM_MODEL") or "gpt-4o"
+        mime_type = self._get_mime_type(image_path)
 
-        response = client.chat.completions.create(
+        response = client.responses.create(
             model=model_name,
-            messages=[
+            input=[
                 {
                     "role": "user",
                     "content": [
                         {
-                            "type": "text",
+                            "type": "input_text",
                             "text": "Describe this image in detail. What do you see? "
                             "Include any text, UI elements, and notable features.",
                         },
                         {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/png;base64,{image_data}",
-                            },
+                            "type": "input_image",
+                            "image_url": f"data:{mime_type};base64,{image_data}",
                         },
                     ],
                 }
             ],
-            max_tokens=1024,
         )
 
-        return response.choices[0].message.content
+        return response.output_text

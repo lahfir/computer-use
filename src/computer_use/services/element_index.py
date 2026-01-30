@@ -108,7 +108,7 @@ class ElementIndex:
         max_results: int = 20,
     ) -> List[SearchResult]:
         """
-        Search for elements matching a query.
+        Search for elements matching a query using O(1) lookups.
 
         Args:
             query: Search query (partial match on label)
@@ -126,55 +126,56 @@ class ElementIndex:
         results: Dict[str, SearchResult] = {}
 
         for word in query_words:
-            for indexed_word, element_ids in self._by_label_words.items():
-                if word in indexed_word or indexed_word in word:
-                    for eid in element_ids:
-                        if eid not in results:
-                            elem = self._elements.get(eid, {})
-                            if role_filter:
-                                elem_role = (elem.get("role") or "").lower()
-                                if role_filter.lower() not in elem_role:
-                                    continue
-
-                            score = self._compute_score(elem, query_lower, query_words)
-                            results[eid] = SearchResult(
-                                element_id=eid,
-                                label=elem.get("label", ""),
-                                role=elem.get("role", ""),
-                                match_score=score,
-                                match_reason=f"word match: {word}",
-                                element_info=elem,
-                            )
-
-        for eid, elem in self._elements.items():
-            if eid in results:
-                continue
-
-            label = (elem.get("label") or "").lower()
-            identifier = (elem.get("identifier") or "").lower()
-
-            if query_lower in label or query_lower in identifier:
-                if role_filter:
-                    elem_role = (elem.get("role") or "").lower()
-                    if role_filter.lower() not in elem_role:
+            element_ids = self._by_label_words.get(word)
+            if element_ids:
+                for eid in element_ids:
+                    if eid in results:
                         continue
+                    elem = self._elements.get(eid, {})
+                    if role_filter:
+                        elem_role = (elem.get("role") or "").lower()
+                        if role_filter.lower() not in elem_role:
+                            continue
+                    score = self._compute_score(elem, query_lower, query_words)
+                    results[eid] = SearchResult(
+                        element_id=eid,
+                        label=elem.get("label", ""),
+                        role=elem.get("role", ""),
+                        match_score=score,
+                        match_reason=f"word: {word}",
+                        element_info=elem,
+                    )
+                    if len(results) >= max_results:
+                        break
 
-                score = self._compute_score(elem, query_lower, query_words)
-                results[eid] = SearchResult(
-                    element_id=eid,
-                    label=elem.get("label", ""),
-                    role=elem.get("role", ""),
-                    match_score=score,
-                    match_reason="substring match",
-                    element_info=elem,
-                )
+        if len(results) < max_results:
+            for eid, elem in self._elements.items():
+                if eid in results:
+                    continue
 
-        sorted_results = sorted(
-            results.values(),
-            key=lambda r: (-r.match_score, r.label.lower()),
-        )
+                label = (elem.get("label") or "").lower()
+                identifier = (elem.get("identifier") or "").lower()
 
-        return sorted_results[:max_results]
+                if query_lower in label or query_lower in identifier:
+                    if role_filter:
+                        elem_role = (elem.get("role") or "").lower()
+                        if role_filter.lower() not in elem_role:
+                            continue
+
+                    score = self._compute_score(elem, query_lower, query_words)
+                    results[eid] = SearchResult(
+                        element_id=eid,
+                        label=elem.get("label", ""),
+                        role=elem.get("role", ""),
+                        match_score=score,
+                        match_reason="substring match",
+                        element_info=elem,
+                    )
+
+                    if len(results) >= max_results:
+                        break
+
+        return sorted(results.values(), key=lambda r: -r.match_score)[:max_results]
 
     def _compute_score(
         self, elem: Dict[str, Any], query_lower: str, query_words: List[str]
