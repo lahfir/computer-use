@@ -540,6 +540,13 @@ B) FAILURE - with honest explanation:
         self.clear_agent_cache()
 
         try:
+            from .utils.threading.main_thread import set_main_event_loop
+
+            try:
+                set_main_event_loop(asyncio.get_running_loop())
+            except RuntimeError:
+                pass
+
             dashboard.set_action("Analyzing", "Processing request...")
 
             context_str = self._extract_context_from_history(conversation_history)

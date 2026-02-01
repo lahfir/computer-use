@@ -107,6 +107,15 @@ class PlatformToolRegistry:
             "file": init_file,
         }
 
+        if self.capabilities.os_type == "macos":
+            try:
+                accessibility_tool = init_accessibility()
+                if accessibility_tool is not None:
+                    tools["accessibility"] = accessibility_tool
+            except Exception:
+                pass
+            init_tasks.pop("accessibility", None)
+
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = {executor.submit(func): name for name, func in init_tasks.items()}
             for future in as_completed(futures):

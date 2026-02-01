@@ -12,6 +12,7 @@ from .gui_basic_tools import (
     ListRunningAppsTool,
     CheckAppRunningTool,
     GetAccessibleElementsTool,
+    SearchElementsTool,
     GetWindowImageTool,
     RequestHumanInputTool,
 )
@@ -36,6 +37,7 @@ __all__ = [
     "ListRunningAppsTool",
     "CheckAppRunningTool",
     "GetAccessibleElementsTool",
+    "SearchElementsTool",
     "GetWindowImageTool",
     "RequestHumanInputTool",
     "WebAutomationTool",

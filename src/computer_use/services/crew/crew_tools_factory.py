@@ -7,25 +7,6 @@ Handles creation and configuration of all tools used by agents.
 from typing import Any, Dict
 
 from ...config.llm_config import LLMConfig
-from ...crew_tools import (
-    CheckAppRunningTool,
-    ClickElementTool,
-    CodingAgentTool,
-    ExecuteShellCommandTool,
-    FindApplicationTool,
-    GetAccessibleElementsTool,
-    GetSystemStateTool,
-    GetWindowImageTool,
-    ListRunningAppsTool,
-    OpenApplicationTool,
-    ReadScreenTextTool,
-    RequestHumanInputTool,
-    ScrollTool,
-    TakeScreenshotTool,
-    TypeTextTool,
-    WebAutomationTool,
-)
-from ...crew_tools.analyze_image_tool import AnalyzeImageTool
 
 
 class CrewToolsFactory:
@@ -44,6 +25,25 @@ class CrewToolsFactory:
         Returns:
             Dictionary of tool name to tool instance
         """
+        from ...crew_tools.gui_basic_tools import (
+            CheckAppRunningTool,
+            GetAccessibleElementsTool,
+            GetWindowImageTool,
+            ListRunningAppsTool,
+            OpenApplicationTool,
+            ReadScreenTextTool,
+            RequestHumanInputTool,
+            ScrollTool,
+            SearchElementsTool,
+            TakeScreenshotTool,
+        )
+        from ...crew_tools.gui_interaction_tools import (
+            ClickElementTool,
+            TypeTextTool,
+        )
+        from ...crew_tools.capability_tools import FindApplicationTool
+        from ...crew_tools.analyze_image_tool import AnalyzeImageTool
+
         tools = {
             "take_screenshot": TakeScreenshotTool(),
             "click_element": ClickElementTool(),
@@ -56,6 +56,7 @@ class CrewToolsFactory:
             "get_accessible_elements": GetAccessibleElementsTool(),
             "get_window_image": GetWindowImageTool(),
             "find_application": FindApplicationTool(),
+            "search_elements": SearchElementsTool(),
             "request_human_input": RequestHumanInputTool(),
             "analyze_image": AnalyzeImageTool(),
         }
@@ -78,6 +79,8 @@ class CrewToolsFactory:
         Returns:
             Dictionary of tool name to tool instance
         """
+        from ...crew_tools.observation_tools import GetSystemStateTool
+
         tools = {
             "get_system_state": GetSystemStateTool(),
         }
@@ -86,7 +89,7 @@ class CrewToolsFactory:
         return tools
 
     @staticmethod
-    def create_web_tool(browser_agent: Any) -> WebAutomationTool:
+    def create_web_tool(browser_agent: Any):
         """
         Create web automation tool.
 
@@ -96,12 +99,14 @@ class CrewToolsFactory:
         Returns:
             Configured WebAutomationTool
         """
+        from ...crew_tools.web_tools import WebAutomationTool
+
         tool = WebAutomationTool()
         tool._browser_agent = browser_agent
         return tool
 
     @staticmethod
-    def create_coding_tool(coding_agent: Any) -> CodingAgentTool:
+    def create_coding_tool(coding_agent: Any):
         """
         Create coding automation tool.
 
@@ -111,14 +116,14 @@ class CrewToolsFactory:
         Returns:
             Configured CodingAgentTool
         """
+        from ...crew_tools.coding_tools import CodingAgentTool
+
         tool = CodingAgentTool()
         tool._coding_agent = coding_agent
         return tool
 
     @staticmethod
-    def create_system_tool(
-        safety_checker: Any, confirmation_manager: Any
-    ) -> ExecuteShellCommandTool:
+    def create_system_tool(safety_checker: Any, confirmation_manager: Any):
         """
         Create system command execution tool.
 
@@ -129,6 +134,8 @@ class CrewToolsFactory:
         Returns:
             Configured ExecuteShellCommandTool
         """
+        from ...crew_tools.system_tools import ExecuteShellCommandTool
+
         tool = ExecuteShellCommandTool()
         tool._safety_checker = safety_checker
         tool._confirmation_manager = confirmation_manager

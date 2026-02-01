@@ -101,9 +101,6 @@ def normalize_windows_element(
 
         label = name or window_text
 
-        if not label and not window_text:
-            return None
-
         identifier = ""
         try:
             runtime_id = getattr(node.element_info, "runtime_id", None)
@@ -111,6 +108,18 @@ def normalize_windows_element(
                 identifier = str(runtime_id)
         except Exception:
             pass
+
+        automation_id = ""
+        try:
+            automation_id = getattr(node.element_info, "automation_id", "") or ""
+        except Exception:
+            automation_id = ""
+
+        if not identifier and automation_id:
+            identifier = automation_id
+
+        if not label and automation_id:
+            label = automation_id
 
         is_enabled = False
         try:

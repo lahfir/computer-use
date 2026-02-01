@@ -70,6 +70,16 @@ def get_best_label(node: Any) -> str:
         if placeholder:
             return str(placeholder)
 
+        help_text = getattr(node, "AXHelp", None)
+        if help_text:
+            return str(help_text)
+
+        identifier = getattr(node, "AXIdentifier", None)
+        if identifier:
+            identifier_str = str(identifier)
+            if 0 < len(identifier_str) <= 6:
+                return identifier_str
+
     except Exception:
         pass
 

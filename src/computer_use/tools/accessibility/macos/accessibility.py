@@ -9,10 +9,11 @@ Design principles:
 """
 
 from typing import List, Optional, Dict, Any, Tuple
+import threading
 import platform
 
 from ..protocol import AccessibilityProtocol
-from ..element_registry import VersionedElementRegistry
+from ..element_store import SimpleElementStore
 from ..cache_manager import AccessibilityCacheManager
 from .role_normalizer import normalize_macos_element
 
@@ -34,10 +35,11 @@ class MacOSAccessibility(AccessibilityProtocol):
 
         self.available = self._check_availability()
         self.atomacos = None
-        self._registry = VersionedElementRegistry()
+        self._store = SimpleElementStore()
         self._cache = AccessibilityCacheManager()
         self._max_elements = 500
         self._max_depth = 25
+        self._lock = threading.RLock()
 
         if self.available:
             self._initialize_api()
@@ -89,11 +91,27 @@ class MacOSAccessibility(AccessibilityProtocol):
             )
             self.available = False
 
+    def _run_accessibility(self, func, *args, **kwargs):
+        from ....utils.threading.main_thread import run_on_main_thread
+
+        def _call():
+            with self._lock:
+                return func(*args, **kwargs)
+
+        return run_on_main_thread(_call)
+
     def invalidate_cache(self, app_name: Optional[str] = None) -> None:
-        self._cache.invalidate(app_name)
-        self._registry.advance_epoch("cache_invalidation")
+        with self._lock:
+            self._cache.invalidate(app_name)
+            if app_name:
+                self._store.clear_app(app_name)
+            else:
+                self._store.clear_all()
 
     def get_app(self, app_name: str, retry_count: int = 1) -> Optional[Any]:
+        return self._run_accessibility(self._get_app_impl, app_name, retry_count)
+
+    def _get_app_impl(self, app_name: str, retry_count: int = 1) -> Optional[Any]:
         """
         Get application reference using scored candidate selection.
 
@@ -214,6 +232,9 @@ class MacOSAccessibility(AccessibilityProtocol):
             return False
 
     def get_windows(self, app: Any) -> List[Any]:
+        return self._run_accessibility(self._get_windows_impl, app)
+
+    def _get_windows_impl(self, app: Any) -> List[Any]:
         if not app:
             return []
 
@@ -237,6 +258,13 @@ class MacOSAccessibility(AccessibilityProtocol):
         return []
 
     def get_elements(
+        self, app_name: str, interactive_only: bool = True, use_cache: bool = True
+    ) -> List[Dict[str, Any]]:
+        return self._run_accessibility(
+            self._get_elements_impl, app_name, interactive_only, use_cache
+        )
+
+    def _get_elements_impl(
         self, app_name: str, interactive_only: bool = True, use_cache: bool = True
     ) -> List[Dict[str, Any]]:
         if not self.available:
@@ -397,7 +425,8 @@ class MacOSAccessibility(AccessibilityProtocol):
         if normalized["bounds"][1] > self.screen_height * 2:
             return
 
-        element_id = self._registry.register_element(normalized)
+        normalized["_native_ref"] = node
+        element_id = self._store.store(normalized, app_name)
         normalized["element_id"] = element_id
 
         is_bottom = (
@@ -463,6 +492,7 @@ class MacOSAccessibility(AccessibilityProtocol):
             "has_actions": len(attrs.get("actions", [])) > 0,
             "enabled": attrs.get("enabled", True),
             "focused": attrs.get("focused", False),
+            "_native_ref": node,
         }
 
         if normalized["bounds"][0] > self.screen_width * 2:
@@ -470,7 +500,7 @@ class MacOSAccessibility(AccessibilityProtocol):
         if normalized["bounds"][1] > self.screen_height * 2:
             return
 
-        element_id = self._registry.register_element(normalized)
+        element_id = self._store.store(normalized, app_name)
         normalized["element_id"] = element_id
         normalized["is_bottom"] = normalized["center"][1] > self.screen_height * 0.75
         normalized["title"] = label
@@ -515,12 +545,16 @@ class MacOSAccessibility(AccessibilityProtocol):
     def click_by_id(
         self, element_id: str, click_type: str = "single"
     ) -> Tuple[bool, str]:
+        return self._run_accessibility(self._click_by_id_impl, element_id, click_type)
+
+    def _click_by_id_impl(
+        self, element_id: str, click_type: str = "single"
+    ) -> Tuple[bool, str]:
         """
         Click element by its unique ID.
 
-        Click priority (in order):
-        1. Native accessibility click (Press/AXPress) - WORKS WITHOUT FRONTMOST
-        2. Coordinate click via pyautogui - Requires frontmost (fallback only)
+        Simple lookup and click - no staleness checks. If click fails,
+        return error suggesting to refresh elements.
 
         Args:
             element_id: Unique element ID from get_elements
@@ -532,70 +566,41 @@ class MacOSAccessibility(AccessibilityProtocol):
         if not self.available:
             return (False, "Accessibility not available")
 
-        record, status = self._registry.get_element(element_id)
+        element = self._store.get(element_id)
 
-        if status == "not_found":
+        if not element:
             return (
                 False,
                 f"Element '{element_id}' not found. Call get_accessible_elements() to refresh.",
             )
 
-        if status == "stale":
-            return (
-                False,
-                f"Element '{element_id}' is STALE (UI may have changed). "
-                f"Call get_accessible_elements() to refresh element list.",
-            )
+        node = element.get("_native_ref") or element.get("_element")
+        label = element.get("label", element_id)
+        role = element.get("role", "")
+        app_name = element.get("app_name", "")
 
-        element_info = record.element_info
-        node = record.native_ref
-        label = element_info.get("label", element_id)
-        center = element_info.get("center")
-        role = element_info.get("role", "")
-        app_name = element_info.get("app_name", "")
+        if not node:
+            return (False, f"Element '{element_id}' has no native reference.")
 
-        if role in ("StaticText", "Text") and node:
+        if role in ("StaticText", "Text"):
             parent = self._find_clickable_parent(node)
             if parent:
                 clicked, message = self._native_click(
                     parent, label, app_name=app_name, click_type=click_type
                 )
                 if clicked:
-                    self._registry.advance_epoch("click")
                     return (clicked, message)
 
-        if node:
-            clicked, message = self._native_click(
-                node, label, app_name=app_name, click_type=click_type
-            )
-            if clicked:
-                self._registry.advance_epoch("click")
-                return (clicked, message)
+        clicked, message = self._native_click(
+            node, label, app_name=app_name, click_type=click_type
+        )
+        if clicked:
+            return (clicked, message)
 
-        normalized = (click_type or "single").strip().lower()
-        if normalized not in {"single", "double", "right"}:
-            normalized = "single"
-
-        if center and len(center) == 2:
-            try:
-                import pyautogui
-
-                if normalized == "double":
-                    pyautogui.click(center[0], center[1], clicks=2)
-                elif normalized == "right":
-                    pyautogui.click(center[0], center[1], button="right")
-                else:
-                    pyautogui.click(center[0], center[1])
-                self._registry.advance_epoch("click")
-                self._cache.on_interaction(app_name if app_name else None)
-                return (
-                    True,
-                    f"Clicked '{label}' at {tuple(center)} (coordinate fallback)",
-                )
-            except Exception as e:
-                return (False, f"Click failed: {e}")
-
-        return (False, f"No click method for '{label}'")
+        return (
+            False,
+            f"Click failed for '{label}'. UI may have changed - call get_accessible_elements() to refresh.",
+        )
 
     def _native_click(
         self, node: Any, label: str, app_name: str = "", click_type: str = "single"
@@ -699,6 +704,9 @@ class MacOSAccessibility(AccessibilityProtocol):
         return None
 
     def get_frontmost_app(self) -> Optional[str]:
+        return self._run_accessibility(self._get_frontmost_app_impl)
+
+    def _get_frontmost_app_impl(self) -> Optional[str]:
         if not self.available:
             return None
 
@@ -727,6 +735,11 @@ class MacOSAccessibility(AccessibilityProtocol):
         return frontmost is not None and self._matches_name(frontmost, app_name)
 
     def get_window_bounds(self, app_name: str) -> Optional[Tuple[int, int, int, int]]:
+        return self._run_accessibility(self._get_window_bounds_impl, app_name)
+
+    def _get_window_bounds_impl(
+        self, app_name: str
+    ) -> Optional[Tuple[int, int, int, int]]:
         if not self.available:
             return None
 
@@ -747,6 +760,9 @@ class MacOSAccessibility(AccessibilityProtocol):
             return None
 
     def get_running_apps(self) -> List[str]:
+        return self._run_accessibility(self._get_running_apps_impl)
+
+    def _get_running_apps_impl(self) -> List[str]:
         if not self.available:
             return []
 
@@ -902,10 +918,7 @@ class MacOSAccessibility(AccessibilityProtocol):
         return texts
 
     def get_element_by_id(self, element_id: str) -> Optional[Dict[str, Any]]:
-        record, status = self._registry.get_element(element_id)
-        if record:
-            return record.element_info
-        return None
+        return self._store.get(element_id)
 
     def get_all_ui_elements(
         self, app_name: Optional[str] = None, include_menu_bar: bool = True

@@ -153,10 +153,25 @@ gui_agent:
     4. VERIFY: Check the UI state changed as expected
     5. REPEAT until goal achieved
 
-    ═══ MANDATORY: USE ELEMENT_IDs FOR CLICKING ═══
-    ALWAYS pass element_id to click_element, NEVER just target text:
-    WRONG:   click_element(target="C")           ← SLOW, uses OCR fallback
-    CORRECT: click_element(element_id="e_but_c_abc123")  ← FAST, native click
+    ═══ LOW-CHURN RULES (MANDATORY) ═══
+    Minimize tool calls and tokens for ALL apps:
+    1. get_window_image + analyze_image ONCE per app focus change.
+       Re-run only if the UI becomes unclear or the app changes.
+    2. get_accessible_elements ONCE to capture IDs; avoid repeated calls
+       between sequential actions unless a click fails with STALE or the UI changed.
+    3. For short sequences (e.g., entering a value via buttons), you may execute
+       up to 6 clicks back-to-back without re-fetching elements.
+    4. Use search_elements ONLY if the target label is not present in the
+       current get_accessible_elements output (or list is truncated).
+    5. Prefer typing full strings over per-character clicks when the app accepts
+       direct keyboard input; this reduces tool calls and errors.
+
+    ═══ MANDATORY: PREFER ELEMENT_IDs FOR CLICKING ═══
+    ALWAYS prefer element_id from get_accessible_elements for native accessibility clicks.
+    If element_id is missing after search_elements, you MAY call click_element(target="C")
+    without element_id. This uses OCR to locate the label and then clicks via accessibility.
+
+    Cursor fallback is DISABLED unless allow_cursor_fallback=true (only when user approves).
 
     The element_id comes from get_accessible_elements output. Look for patterns like:
     - Button: Clear(e_but_clear_abc123) → use element_id="e_but_clear_abc123"
@@ -186,6 +201,10 @@ gui_agent:
     NEVER type_text without clicking the input field first.
     To submit/confirm: type_text("\n") presses Return key.
 
+    Exception: If there are NO input fields and the app accepts direct typing,
+    you MAY type directly after focusing the app, but you MUST set require_app
+    to the target app name.
+
     ═══ FAILURE REPORTING ═══
     If you CANNOT complete the task after reasonable attempts:
     - Report EXACTLY what failed and why (e.g., "Could not find contact X in Messages")
@@ -202,8 +221,10 @@ gui_agent:
     - Any action before observing
     - type_text without prior click_element on an input field
     - Using "Action: Final Answer" (not a tool - just output "Final Answer:" directly)
+    - Outputting raw "Action:" / "Action Input:" lines instead of proper tool calls
   tools:
     - get_accessible_elements
+    - search_elements
     - read_screen_text
     - get_window_image
     - analyze_image

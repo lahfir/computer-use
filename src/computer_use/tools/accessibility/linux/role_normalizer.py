@@ -130,9 +130,6 @@ def normalize_linux_element(
         description = getattr(node, "description", "") or ""
         label = name or description
 
-        if not label and not name:
-            return None
-
         has_actions = False
         try:
             action_iface = node.queryAction()
@@ -156,6 +153,9 @@ def normalize_linux_element(
                 identifier = str(idx)
         except Exception:
             pass
+
+        if not label:
+            label = role or ""
 
         role_desc = ""
         try:

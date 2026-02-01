@@ -673,6 +673,127 @@ def _is_meaningful_label(label: str) -> bool:
     return True
 
 
+def _should_apply_ocr_labels(
+    elements: list[dict], filter_text: Optional[str], filter_role: Optional[str]
+) -> bool:
+    if filter_text or filter_role:
+        return True
+
+    button_total = 0
+    button_labeled = 0
+    for e in elements:
+        role = (e.get("role") or "").lower()
+        if "button" not in role:
+            continue
+        button_total += 1
+        if _is_meaningful_label(e.get("label", "")):
+            button_labeled += 1
+
+    if button_total >= 10 and button_labeled < max(3, int(button_total * 0.2)):
+        return True
+    return False
+
+
+def _apply_ocr_labels(
+    elements: list[dict],
+    app_name: str,
+    accessibility_tool,
+    tool_registry,
+    filter_text: Optional[str],
+    filter_role: Optional[str],
+) -> None:
+    if not _should_apply_ocr_labels(elements, filter_text, filter_role):
+        return
+
+    screenshot_tool = tool_registry.get_tool("screenshot")
+    ocr_tool = tool_registry.get_tool("ocr")
+
+    if not screenshot_tool or not ocr_tool:
+        return
+
+    window_bounds = None
+    if accessibility_tool and hasattr(accessibility_tool, "get_app_window_bounds"):
+        window_bounds = accessibility_tool.get_app_window_bounds(app_name)
+
+    screenshot = screenshot_tool.capture()
+    scaling = getattr(screenshot_tool, "scaling_factor", 1.0)
+    ocr_screenshot = screenshot
+    x_offset = 0
+    y_offset = 0
+
+    if window_bounds:
+        x, y, w, h = window_bounds
+        x_scaled = int(x * scaling)
+        y_scaled = int(y * scaling)
+        w_scaled = int(w * scaling)
+        h_scaled = int(h * scaling)
+        try:
+            ocr_screenshot = screenshot.crop(
+                (x_scaled, y_scaled, x_scaled + w_scaled, y_scaled + h_scaled)
+            )
+            x_offset = x
+            y_offset = y
+        except Exception:
+            pass
+
+    try:
+        ocr_items = ocr_tool.extract_all_text(ocr_screenshot) or []
+    except Exception:
+        return
+
+    if not ocr_items:
+        return
+
+    screen_items = []
+    for item in ocr_items:
+        text = (item.text or "").strip()
+        if not text:
+            continue
+        x_raw, y_raw = item.center
+        x_screen = int(x_raw / scaling) + x_offset
+        y_screen = int(y_raw / scaling) + y_offset
+        screen_items.append(
+            {
+                "text": text,
+                "center": (x_screen, y_screen),
+                "confidence": float(item.confidence or 0.0),
+            }
+        )
+
+    if not screen_items:
+        return
+
+    for elem in elements:
+        label = (elem.get("label") or "").strip()
+        if _is_meaningful_label(label):
+            continue
+
+        bounds = elem.get("bounds") or []
+        if len(bounds) != 4:
+            continue
+
+        x, y, w, h = bounds
+        best_text = None
+        best_conf = -1.0
+        best_len = 9999
+
+        for item in screen_items:
+            cx, cy = item["center"]
+            if not (x <= cx <= x + w and y <= cy <= y + h):
+                continue
+            text = item["text"]
+            conf = item["confidence"]
+            text_len = len(text)
+            if conf > best_conf or (conf == best_conf and text_len < best_len):
+                best_text = text
+                best_conf = conf
+                best_len = text_len
+
+        if best_text:
+            elem["label"] = best_text
+            elem["title"] = best_text
+
+
 def _format_label_id(label: str, element_id: str, max_len: int = 22) -> str:
     """
     Format a label with element_id in a compact, readable form.
@@ -851,6 +972,10 @@ def _format_elements_smart_compact(selected: list[dict], hidden_count: int) -> s
         else:
             if label:
                 by_role.setdefault(role, []).append(_format_label_id(label, eid))
+            else:
+                by_role.setdefault(role, []).append(
+                    _format_label_id("[unlabeled]", eid)
+                )
 
     role_order = [
         "Button",
@@ -959,15 +1084,38 @@ class GetAccessibleElementsTool(InstrumentedBaseTool):
 
         try:
             dashboard.set_action("Scanning", f"{app_name} UI")
+            import time
+
+            timing = get_timing_config()
+            retry_count = max(1, timing.accessibility_retry_count)
             elements = []
+            app_ref = None
+            windows = []
             with action_spinner("Scanning", f"{app_name} UI"):
-                elements = accessibility_tool.get_elements(
-                    app_name, interactive_only=True, use_cache=True
-                )
+                for attempt in range(retry_count):
+                    if attempt == 0:
+                        accessibility_tool.invalidate_cache(app_name)
+
+                    use_cache = attempt == 0
+                    elements = accessibility_tool.get_elements(
+                        app_name, interactive_only=True, use_cache=use_cache
+                    )
+                    if elements:
+                        break
+
+                    app_ref = accessibility_tool.get_app(app_name, retry_count=1)
+                    windows = accessibility_tool.get_windows(app_ref) if app_ref else []
+
+                    if windows:
+                        time.sleep(timing.accessibility_api_delay)
+                    else:
+                        time.sleep(timing.app_launch_retry_interval)
+
+                    accessibility_tool.invalidate_cache(app_name)
 
             if not elements:
-                app_ref = accessibility_tool.get_app(app_name)
-                windows = []
+                if app_ref is None:
+                    app_ref = accessibility_tool.get_app(app_name, retry_count=1)
                 window_info = []
                 if app_ref:
                     windows = accessibility_tool.get_windows(app_ref)
@@ -986,27 +1134,37 @@ class GetAccessibleElementsTool(InstrumentedBaseTool):
                 )
 
                 if len(windows) == 0:
-                    return ActionResult(
-                        success=False,
-                        action_taken=f"{app_name} has no visible windows. The app may be minimized or not fully launched.",
-                        method_used="accessibility",
-                        confidence=0.0,
-                        error=f"No windows found for {app_name}. Try clicking on the app or using open_application first.",
-                        data={
-                            "elements": [],
-                            "count": 0,
-                            "debug": debug_info,
-                            "windows": 0,
-                        },
-                    )
+                    process_tool = self._tool_registry.get_tool("process")
+                    if process_tool:
+                        process_tool.focus_app(app_name)
+                        time.sleep(timing.app_focus_delay)
+                        accessibility_tool.invalidate_cache(app_name)
+                        elements = accessibility_tool.get_elements(
+                            app_name, interactive_only=True, use_cache=False
+                        )
+                    if not elements:
+                        return ActionResult(
+                            success=False,
+                            action_taken=f"{app_name} has no visible windows. The app may be minimized or not fully launched.",
+                            method_used="accessibility",
+                            confidence=0.0,
+                            error=f"No windows found for {app_name}. Try clicking on the app or using open_application first.",
+                            data={
+                                "elements": [],
+                                "count": 0,
+                                "debug": debug_info,
+                                "windows": 0,
+                            },
+                        )
 
-                return ActionResult(
-                    success=True,
-                    action_taken=f"No interactive elements found in {app_name}. Debug: {debug_info}. The app window exists but contains no clickable UI elements. Try using get_window_image to see screen state.",
-                    method_used="accessibility",
-                    confidence=0.5,
-                    data={"elements": [], "count": 0, "debug": debug_info},
-                )
+                if not elements:
+                    return ActionResult(
+                        success=True,
+                        action_taken=f"No interactive elements found in {app_name}. Debug: {debug_info}. The app window exists but contains no clickable UI elements. Try using get_window_image to see screen state.",
+                        method_used="accessibility",
+                        confidence=0.5,
+                        data={"elements": [], "count": 0, "debug": debug_info},
+                    )
 
             print_action_result(True, f"Found {len(elements)} elements")
 
@@ -1045,6 +1203,15 @@ class GetAccessibleElementsTool(InstrumentedBaseTool):
 
             normalized_elements.sort(key=_get_element_priority)
 
+            _apply_ocr_labels(
+                normalized_elements,
+                app_name,
+                accessibility_tool,
+                self._tool_registry,
+                filter_text,
+                filter_role,
+            )
+
             if filter_role:
                 role_lower = filter_role.lower()
                 normalized_elements = [
@@ -1078,10 +1245,19 @@ class GetAccessibleElementsTool(InstrumentedBaseTool):
                         data={"elements": [], "count": 0, "filter": filter_text},
                     )
 
-            max_total = 35 if (filter_text or filter_role) else 30
-            selected, hidden_count = _select_smart_compact_elements(
-                normalized_elements, max_total=max_total
-            )
+            if filter_text or filter_role:
+                max_total = 200
+                selected = normalized_elements[:max_total]
+                hidden_count = max(0, len(normalized_elements) - len(selected))
+            else:
+                if len(normalized_elements) <= 80:
+                    selected = normalized_elements
+                    hidden_count = 0
+                else:
+                    max_total = 30
+                    selected, hidden_count = _select_smart_compact_elements(
+                        normalized_elements, max_total=max_total
+                    )
             elements_summary = _format_elements_smart_compact(selected, hidden_count)
 
             import hashlib

@@ -748,6 +748,7 @@ dependencies = [
     { name = "easyocr" },
     { name = "flask" },
     { name = "google-genai" },
+    { name = "inquirerpy" },
     { name = "langchain-anthropic" },
     { name = "langchain-community" },
     { name = "langchain-core" },
@@ -798,6 +799,7 @@ windows = [
 dev = [
     { name = "hypothesis" },
     { name = "pyte" },
+    { name = "pytest" },
 ]
 
 [package.metadata]
@@ -810,6 +812,7 @@ requires-dist = [
     { name = "easyocr", specifier = ">=1.7.0" },
     { name = "flask", specifier = ">=3.0.0" },
     { name = "google-genai", specifier = ">=1.0.0" },
+    { name = "inquirerpy", specifier = ">=0.3.4" },
     { name = "langchain-anthropic", specifier = ">=0.1.0" },
     { name = "langchain-community", specifier = ">=0.0.10" },
     { name = "langchain-core", specifier = ">=0.1.0" },
@@ -847,6 +850,7 @@ provides-extras = ["dev", "macos", "windows", "linux"]
 dev = [
     { name = "hypothesis", specifier = ">=6.150.3" },
     { name = "pyte", specifier = ">=0.8.2" },
+    { name = "pytest", specifier = ">=9.0.1" },
 ]
 
 [[package]]

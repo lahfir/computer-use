@@ -33,6 +33,7 @@ dependencies = [
     "deepgram-sdk>=5.3.0",
     "sounddevice>=0.4.6",
     "google-genai>=1.0.0",
+    "inquirerpy>=0.3.4",
 ]
 
 [project.optional-dependencies]
@@ -66,5 +67,6 @@ packages = ["src/computer_use"]
 dev = [
     "hypothesis>=6.150.3",
     "pyte>=0.8.2",
+    "pytest>=9.0.1",
 ]
 

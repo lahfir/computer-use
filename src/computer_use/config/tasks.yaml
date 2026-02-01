@@ -36,7 +36,7 @@ gui_complete_file_save_workflow:
   agent: gui_agent
 
 gui_click_ui_element:
-  description: "In {app_name}, click {target} using accessibility first, OCR fallback. Verify action."
+  description: "In {app_name}, click {target} using accessibility first. Cursor fallback only if explicitly allowed (allow_cursor_fallback=true). Verify action."
   expected_output: "{target} clicked, resulting screen state."
   agent: gui_agent
 

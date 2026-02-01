@@ -9,10 +9,11 @@ Design principles:
 """
 
 from typing import List, Optional, Dict, Any, Tuple
+import threading
 import platform
 
 from ..protocol import AccessibilityProtocol
-from ..element_registry import VersionedElementRegistry
+from ..element_store import SimpleElementStore
 from ..cache_manager import AccessibilityCacheManager
 from .role_normalizer import normalize_linux_element
 
@@ -31,9 +32,10 @@ class LinuxAccessibility(AccessibilityProtocol):
         self.available = self._check_availability()
         self.pyatspi = None
         self.desktop = None
-        self._registry = VersionedElementRegistry()
+        self._store = SimpleElementStore()
         self._cache = AccessibilityCacheManager()
         self._max_depth = 25
+        self._lock = threading.RLock()
 
         if self.available:
             self._initialize_api()
@@ -59,11 +61,27 @@ class LinuxAccessibility(AccessibilityProtocol):
             print_info("Ensure accessibility is enabled in system settings")
             self.available = False
 
+    def _run_accessibility(self, func, *args, **kwargs):
+        from ....utils.threading.main_thread import run_on_main_thread
+
+        def _call():
+            with self._lock:
+                return func(*args, **kwargs)
+
+        return run_on_main_thread(_call)
+
     def invalidate_cache(self, app_name: Optional[str] = None) -> None:
-        self._cache.invalidate(app_name)
-        self._registry.advance_epoch("cache_invalidation")
+        with self._lock:
+            self._cache.invalidate(app_name)
+            if app_name:
+                self._store.clear_app(app_name)
+            else:
+                self._store.clear_all()
 
     def get_app(self, app_name: str, retry_count: int = 3) -> Optional[Any]:
+        return self._run_accessibility(self._get_app_impl, app_name, retry_count)
+
+    def _get_app_impl(self, app_name: str, retry_count: int = 3) -> Optional[Any]:
         if not self.available or not app_name:
             return None
 
@@ -85,6 +103,9 @@ class LinuxAccessibility(AccessibilityProtocol):
         return None
 
     def get_windows(self, app: Any) -> List[Any]:
+        return self._run_accessibility(self._get_windows_impl, app)
+
+    def _get_windows_impl(self, app: Any) -> List[Any]:
         if not app:
             return []
 
@@ -104,6 +125,13 @@ class LinuxAccessibility(AccessibilityProtocol):
         return windows
 
     def get_elements(
+        self, app_name: str, interactive_only: bool = True, use_cache: bool = True
+    ) -> List[Dict[str, Any]]:
+        return self._run_accessibility(
+            self._get_elements_impl, app_name, interactive_only, use_cache
+        )
+
+    def _get_elements_impl(
         self, app_name: str, interactive_only: bool = True, use_cache: bool = True
     ) -> List[Dict[str, Any]]:
         if not self.available:
@@ -210,7 +238,8 @@ class LinuxAccessibility(AccessibilityProtocol):
         if not normalized:
             return
 
-        element_id = self._registry.register_element(normalized)
+        normalized["_native_ref"] = node
+        element_id = self._store.store(normalized, app_name)
         normalized["element_id"] = element_id
 
         is_bottom = (
@@ -228,60 +257,38 @@ class LinuxAccessibility(AccessibilityProtocol):
     def click_by_id(
         self, element_id: str, click_type: str = "single"
     ) -> Tuple[bool, str]:
+        return self._run_accessibility(self._click_by_id_impl, element_id, click_type)
+
+    def _click_by_id_impl(
+        self, element_id: str, click_type: str = "single"
+    ) -> Tuple[bool, str]:
         if not self.available:
             return (False, "Accessibility not available")
 
-        record, status = self._registry.get_element(element_id)
+        element = self._store.get(element_id)
 
-        if status == "not_found":
+        if not element:
             return (
                 False,
                 f"Element '{element_id}' not found. Call get_accessible_elements() to refresh.",
             )
 
-        if status == "stale":
+        node = element.get("_native_ref") or element.get("_element")
+        label = element.get("label", element_id)
+        app_name = element.get("app_name", "")
+
+        if not node:
+            return (False, f"Element '{element_id}' has no native reference.")
+
+        try:
+            self._perform_click(node, click_type)
+            self._cache.on_interaction(app_name if app_name else None)
+            return (True, f"Clicked '{label}'")
+        except Exception as e:
             return (
                 False,
-                f"Element '{element_id}' is STALE (UI may have changed). "
-                f"Call get_accessible_elements() to refresh element list.",
+                f"Click failed for '{label}': {e}. UI may have changed - call get_accessible_elements() to refresh.",
             )
-
-        element_info = record.element_info
-        node = record.native_ref
-        label = element_info.get("label", element_id)
-        app_name = element_info.get("app_name", "")
-
-        if node:
-            try:
-                self._perform_click(node, click_type)
-                self._registry.advance_epoch("click")
-                self._cache.on_interaction(app_name if app_name else None)
-                return (True, f"Clicked '{label}'")
-            except Exception:
-                pass
-
-        center = element_info.get("center")
-        if center and len(center) == 2:
-            try:
-                import pyautogui
-
-                normalized = (click_type or "single").strip().lower()
-                x, y = center
-
-                if normalized == "double":
-                    pyautogui.click(x, y, clicks=2)
-                elif normalized == "right":
-                    pyautogui.click(x, y, button="right")
-                else:
-                    pyautogui.click(x, y)
-
-                self._registry.advance_epoch("click")
-                self._cache.on_interaction(app_name if app_name else None)
-                return (True, f"Clicked '{label}' at ({x}, {y})")
-            except Exception as e:
-                return (False, f"Coordinate click failed: {e}")
-
-        return (False, f"No click method available for '{label}'")
 
     def _perform_click(self, node: Any, click_type: str = "single") -> None:
         normalized = (click_type or "single").strip().lower()
@@ -311,6 +318,9 @@ class LinuxAccessibility(AccessibilityProtocol):
         raise Exception("No click/press action available")
 
     def get_frontmost_app(self) -> Optional[str]:
+        return self._run_accessibility(self._get_frontmost_app_impl)
+
+    def _get_frontmost_app_impl(self) -> Optional[str]:
         if not self.available:
             return None
 
@@ -333,6 +343,11 @@ class LinuxAccessibility(AccessibilityProtocol):
         return frontmost is not None and self._matches_name(frontmost, app_name)
 
     def get_window_bounds(self, app_name: str) -> Optional[Tuple[int, int, int, int]]:
+        return self._run_accessibility(self._get_window_bounds_impl, app_name)
+
+    def _get_window_bounds_impl(
+        self, app_name: str
+    ) -> Optional[Tuple[int, int, int, int]]:
         if not self.available:
             return None
 
@@ -353,6 +368,9 @@ class LinuxAccessibility(AccessibilityProtocol):
             return None
 
     def get_running_apps(self) -> List[str]:
+        return self._run_accessibility(self._get_running_apps_impl)
+
+    def _get_running_apps_impl(self) -> List[str]:
         if not self.available:
             return []
 
@@ -455,10 +473,7 @@ class LinuxAccessibility(AccessibilityProtocol):
         return texts
 
     def get_element_by_id(self, element_id: str) -> Optional[Dict[str, Any]]:
-        record, status = self._registry.get_element(element_id)
-        if record:
-            return record.element_info
-        return None
+        return self._store.get(element_id)
 
     def get_all_ui_elements(
         self, app_name: Optional[str] = None, include_menu_bar: bool = True
@@ -513,13 +528,12 @@ class LinuxAccessibility(AccessibilityProtocol):
         if not self.available:
             return (False, "unavailable")
 
-        node = element_dict.get("_element")
+        node = element_dict.get("_native_ref") or element_dict.get("_element")
         if not node:
             return (False, "no_reference")
 
         try:
             self._perform_click(node)
-            self._registry.advance_epoch("click")
             self._cache.on_interaction()
             return (True, "element")
         except Exception:
@@ -533,7 +547,6 @@ class LinuxAccessibility(AccessibilityProtocol):
                     if parent:
                         try:
                             self._perform_click(parent)
-                            self._registry.advance_epoch("click")
                             self._cache.on_interaction()
                             return (True, f"parent_{depth}")
                         except Exception:
