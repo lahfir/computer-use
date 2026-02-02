@@ -80,7 +80,10 @@ class ElementIndex:
         if not text:
             return []
 
-        text_lower = text.lower()
+        text_lower = text.lower().strip()
+        if len(text_lower) == 1:
+            return [text_lower]
+
         words = []
         current_word = []
 
@@ -89,15 +92,11 @@ class ElementIndex:
                 current_word.append(char)
             else:
                 if current_word:
-                    word = "".join(current_word)
-                    if len(word) >= 2:
-                        words.append(word)
+                    words.append("".join(current_word))
                     current_word = []
 
         if current_word:
-            word = "".join(current_word)
-            if len(word) >= 2:
-                words.append(word)
+            words.append("".join(current_word))
 
         return words
 
@@ -121,7 +120,7 @@ class ElementIndex:
         if not query:
             return self._get_all_by_role(role_filter, max_results)
 
-        query_lower = query.lower()
+        query_lower = query.lower().strip()
         query_words = self._extract_words(query)
         results: Dict[str, SearchResult] = {}
 

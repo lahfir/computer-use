@@ -182,34 +182,6 @@ class ClickElementTool(InstrumentedBaseTool):
                         data={"requires_verification": False},
                     )
                 accessibility_error = message
-                if current_app:
-                    refreshed = self._resolve_accessible_element_by_ocr(
-                        accessibility_tool, current_app, target, visual_context
-                    )
-                    if refreshed:
-                        refreshed_id = refreshed.get("element_id") or refreshed.get(
-                            "id"
-                        )
-                        if refreshed_id and refreshed_id != element_id:
-                            with action_spinner("Clicking", target):
-                                try:
-                                    success, message = accessibility_tool.click_by_id(
-                                        refreshed_id, click_type=click_type
-                                    )
-                                except TypeError:
-                                    success, message = accessibility_tool.click_by_id(
-                                        refreshed_id
-                                    )
-                            print_action_result(success, message)
-                            if success:
-                                return ActionResult(
-                                    success=success,
-                                    action_taken=message,
-                                    method_used="accessibility_native",
-                                    confidence=1.0,
-                                    data={"requires_verification": False},
-                                )
-                            accessibility_error = message
 
         if accessibility_tool and accessibility_tool.available and current_app:
             fallback_reason = (
@@ -218,13 +190,16 @@ class ClickElementTool(InstrumentedBaseTool):
                 else f"No accessible element matched '{target}'."
             )
             if not allow_cursor_fallback:
-                print_action_result(False, "Accessibility-only mode: fallback disabled")
+                print_action_result(
+                    False, "Click failed - call get_accessible_elements() to refresh"
+                )
                 return ActionResult(
                     success=False,
                     action_taken=f"Failed to click {target}",
                     method_used="accessibility_native",
                     confidence=0.0,
-                    error=f"{fallback_reason} Cursor fallback is disabled.",
+                    error=f"{fallback_reason} Call get_accessible_elements() to refresh element list.",
+                    data={"requires_refresh": True},
                 )
             print_action_result(
                 True, f"{fallback_reason} Falling back to cursor input."
@@ -232,11 +207,21 @@ class ClickElementTool(InstrumentedBaseTool):
 
         input_tool = self._tool_registry.get_tool("input")
 
-        if element and "center" in element and allow_cursor_fallback:
-            center = element["center"]
-            if isinstance(center, list) and len(center) == 2:
-                x, y = center
+        if element and allow_cursor_fallback:
+            x, y = None, None
 
+            if "center" in element:
+                center = element["center"]
+                if isinstance(center, list) and len(center) == 2:
+                    x, y = center
+            elif "x" in element and "y" in element:
+                ex, ey = element["x"], element["y"]
+                ew = element.get("width", 0)
+                eh = element.get("height", 0)
+                x = int(ex + ew / 2)
+                y = int(ey + eh / 2)
+
+            if x is not None and y is not None:
                 with action_spinner("Clicking", target):
                     if click_type == "double":
                         success = input_tool.double_click(x, y, validate=True)
@@ -404,7 +389,7 @@ class ClickElementTool(InstrumentedBaseTool):
         try:
             try:
                 elements = accessibility_tool.get_elements(
-                    current_app, interactive_only=True, use_cache=False
+                    current_app, interactive_only=True, use_cache=True
                 )
             except TypeError:
                 elements = accessibility_tool.get_elements(
@@ -741,8 +726,11 @@ class TypeTextTool(InstrumentedBaseTool):
 
     name: str = "type_text"
     description: str = """Type text, numbers, or keyboard shortcuts.
+    IMPORTANT: To type into a text field, you MUST click the field first with click_element to focus it.
+    Text goes to whatever UI element currently has keyboard focus.
     Smart paste for paths, URLs, long text. Supports hotkeys (cmd+c, ctrl+v).
-    For hotkeys: use require_app to ensure correct app is focused before sending."""
+    For hotkeys: use require_app to ensure correct app is focused before sending.
+    To press Enter/Return key: use text="\\n" (NOT "enter" which types literal text)."""
     args_schema: type[BaseModel] = TypeInput
 
     def _run(
@@ -841,7 +829,6 @@ class TypeTextTool(InstrumentedBaseTool):
                     confidence=1.0,
                 )
 
-            # Enter key
             elif text == "\\n" or text == "\n":
                 import pyautogui
 
@@ -853,7 +840,6 @@ class TypeTextTool(InstrumentedBaseTool):
                     confidence=1.0,
                 )
 
-            # Smart paste detection
             should_paste = (
                 len(text) > 50
                 or text.startswith("/")

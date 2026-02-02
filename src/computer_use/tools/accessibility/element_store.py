@@ -63,6 +63,7 @@ def compute_element_id(
     identifier: str,
     app_name: str,
     parent_path: str = "",
+    center: Optional[list] = None,
 ) -> str:
     """
     Generate stable, semantic element ID.
@@ -75,6 +76,7 @@ def compute_element_id(
         identifier: Platform-specific unique ID (for collision resolution)
         app_name: Application name
         parent_path: Hash of ancestor roles for context (optional)
+        center: Element center [x, y] - included in hash when label is empty
 
     Returns:
         Stable element ID like "e_but_save_a1b2c3d4"
@@ -86,6 +88,10 @@ def compute_element_id(
         identifier.strip(),
         parent_path.strip(),
     ]
+
+    if not label.strip() and center and len(center) >= 2:
+        identity_parts.append(f"{center[0]}:{center[1]}")
+
     identity = "|".join(identity_parts)
 
     hash_suffix = hashlib.sha256(identity.encode()).hexdigest()[:8]
@@ -139,6 +145,7 @@ class SimpleElementStore:
             identifier=element.get("identifier", ""),
             app_name=app_name,
             parent_path=element.get("parent_path", ""),
+            center=element.get("center"),
         )
 
         final_id = self._resolve_collision(element_id, element)
@@ -178,22 +185,25 @@ class SimpleElementStore:
         """
         Check if two element dicts represent the same UI element.
 
-        Same if: close position (within 50px) AND same role AND same label.
+        Same if: close position (within 10px) AND same role AND same label.
+        If positions can't be compared, elements are considered different.
         """
         if existing.get("role") != new.get("role"):
             return False
         if existing.get("label") != new.get("label"):
             return False
 
-        old_center = existing.get("center", [0, 0])
-        new_center = new.get("center", [0, 0])
+        old_center = existing.get("center")
+        new_center = new.get("center")
 
-        if old_center and new_center and len(old_center) >= 2 and len(new_center) >= 2:
-            dx = abs(old_center[0] - new_center[0])
-            dy = abs(old_center[1] - new_center[1])
-            return dx <= 50 and dy <= 50
+        if not old_center or not new_center:
+            return False
+        if len(old_center) < 2 or len(new_center) < 2:
+            return False
 
-        return True
+        dx = abs(old_center[0] - new_center[0])
+        dy = abs(old_center[1] - new_center[1])
+        return dx <= 10 and dy <= 10
 
     def get(self, element_id: str) -> Optional[Dict[str, Any]]:
         """

@@ -11,11 +11,61 @@ Design principles:
 from typing import List, Optional, Dict, Any, Tuple
 import threading
 import platform
+import time
 
 from ..protocol import AccessibilityProtocol
 from ..element_store import SimpleElementStore
 from ..cache_manager import AccessibilityCacheManager
 from .role_normalizer import normalize_macos_element
+
+
+def _is_nonempty_list(value: Any) -> bool:
+    """
+    Safely check if value is a non-empty list-like object.
+    Handles OC_PythonLong and other scalar types that don't support len().
+    """
+    if value is None:
+        return False
+    try:
+        return (
+            hasattr(value, "__iter__") and not isinstance(value, str) and len(value) > 0
+        )
+    except TypeError:
+        return False
+
+
+def _safe_iter(value: Any) -> list:
+    """
+    Safely iterate over a value that might be OC_PythonLong or None.
+    Returns empty list if value is not iterable.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return []
+    try:
+        if hasattr(value, "__iter__"):
+            return list(value)
+        return []
+    except (TypeError, ValueError):
+        return []
+
+
+def _safe_str(value: Any, max_len: int = 100) -> str:
+    """
+    Safely convert a value to string. Handles atomacos objects that crash on str().
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value[:max_len] if len(value) > max_len else value
+    if isinstance(value, (int, float)):
+        return str(value)
+    try:
+        result = str(value)
+        return result[:max_len] if len(result) > max_len else result
+    except (TypeError, ValueError, AttributeError):
+        return ""
 
 
 class MacOSAccessibility(AccessibilityProtocol):
@@ -92,13 +142,8 @@ class MacOSAccessibility(AccessibilityProtocol):
             self.available = False
 
     def _run_accessibility(self, func, *args, **kwargs):
-        from ....utils.threading.main_thread import run_on_main_thread
-
-        def _call():
-            with self._lock:
-                return func(*args, **kwargs)
-
-        return run_on_main_thread(_call)
+        with self._lock:
+            return func(*args, **kwargs)
 
     def invalidate_cache(self, app_name: Optional[str] = None) -> None:
         with self._lock:
@@ -199,14 +244,13 @@ class MacOSAccessibility(AccessibilityProtocol):
             return False
         try:
             windows = getattr(app_ref, "AXWindows", None)
-            if windows and len(windows) > 0:
+            if _is_nonempty_list(windows):
                 return True
             children = getattr(app_ref, "AXChildren", None)
-            if children:
-                for c in children:
-                    role = getattr(c, "AXRole", None)
-                    if role and str(role) in ("AXWindow", "AXSheet", "AXDrawer"):
-                        return True
+            for c in _safe_iter(children):
+                role = getattr(c, "AXRole", None)
+                if role and str(role) in ("AXWindow", "AXSheet", "AXDrawer"):
+                    return True
             return False
         except Exception:
             return False
@@ -222,10 +266,10 @@ class MacOSAccessibility(AccessibilityProtocol):
             if role == "AXApplication":
                 return True
             windows = getattr(app_ref, "AXWindows", None)
-            if windows is not None and len(windows) > 0:
+            if _is_nonempty_list(windows):
                 return True
             children = getattr(app_ref, "AXChildren", None)
-            if children is not None and len(children) > 0:
+            if _is_nonempty_list(children):
                 return True
             return bool(role)
         except Exception:
@@ -244,13 +288,15 @@ class MacOSAccessibility(AccessibilityProtocol):
         except Exception:
             pass
 
-        if hasattr(app, "AXWindows") and app.AXWindows:
-            return list(app.AXWindows)
+        windows_attr = getattr(app, "AXWindows", None)
+        if _is_nonempty_list(windows_attr):
+            return _safe_iter(windows_attr)
 
-        if hasattr(app, "AXChildren") and app.AXChildren:
+        children_attr = getattr(app, "AXChildren", None)
+        if _is_nonempty_list(children_attr):
             return [
                 c
-                for c in app.AXChildren
+                for c in _safe_iter(children_attr)
                 if hasattr(c, "AXRole")
                 and str(c.AXRole) in ("AXWindow", "AXSheet", "AXDrawer")
             ]
@@ -294,8 +340,35 @@ class MacOSAccessibility(AccessibilityProtocol):
             except Exception:
                 pass
 
+        if hasattr(app, "AXToolbar"):
+            try:
+                self._traverse(
+                    app.AXToolbar, elements, interactive_only, 0, app_name_lower
+                )
+            except Exception:
+                pass
+
+        app_children = getattr(app, "AXChildren", None)
+        if _is_nonempty_list(app_children):
+            for child in _safe_iter(app_children):
+                child_role = str(getattr(child, "AXRole", "") or "")
+                if child_role not in ("AXWindow", "AXMenuBar", "AXSheet", "AXDrawer"):
+                    try:
+                        self._traverse(
+                            child, elements, interactive_only, 0, app_name_lower
+                        )
+                    except Exception:
+                        pass
+
         for window in windows:
             self._traverse(window, elements, interactive_only, 0, app_name_lower)
+            if hasattr(window, "AXToolbar"):
+                try:
+                    self._traverse(
+                        window.AXToolbar, elements, interactive_only, 0, app_name_lower
+                    )
+                except Exception:
+                    pass
 
         self._cache.set_elements(cache_key, elements)
         return elements
@@ -316,7 +389,7 @@ class MacOSAccessibility(AccessibilityProtocol):
         """
         try:
             actions = getattr(node, "AXActions", None)
-            has_actions = actions is not None and len(actions) > 0
+            has_actions = _is_nonempty_list(actions)
             is_enabled = bool(getattr(node, "AXEnabled", False))
             return has_actions or is_enabled
         except Exception:
@@ -324,35 +397,62 @@ class MacOSAccessibility(AccessibilityProtocol):
 
     def _batch_fetch_attributes(self, node: Any) -> Optional[Dict[str, Any]]:
         """
-        Fetch all accessibility attributes for a node in one try block.
+        Fetch all accessibility attributes for a node with per-attribute error handling.
 
-        Minimizes IPC calls by fetching everything at once instead of
-        making separate getattr calls throughout traversal.
+        Some elements throw exceptions for unsupported attributes (e.g., AXValue
+        on MenuButton). Each attribute is fetched individually to prevent one
+        failure from losing all data.
 
         Args:
             node: atomacos accessibility node
 
         Returns:
-            Dictionary of all attributes, or None if fetch failed
+            Dictionary of all attributes, or None if critical attrs failed
         """
         try:
-            return {
-                "role": str(getattr(node, "AXRole", "") or ""),
-                "position": getattr(node, "AXPosition", None),
-                "size": getattr(node, "AXSize", None),
-                "title": getattr(node, "AXTitle", None),
-                "description": getattr(node, "AXDescription", None),
-                "value": getattr(node, "AXValue", None),
-                "placeholder": getattr(node, "AXPlaceholderValue", None),
-                "identifier": str(getattr(node, "AXIdentifier", "") or ""),
-                "actions": getattr(node, "AXActions", None) or [],
-                "enabled": bool(getattr(node, "AXEnabled", False)),
-                "focused": bool(getattr(node, "AXFocused", False)),
-                "role_description": str(getattr(node, "AXRoleDescription", "") or ""),
-                "children": getattr(node, "AXChildren", None),
-            }
+            role = str(getattr(node, "AXRole", "") or "")
         except Exception:
             return None
+
+        try:
+            position = getattr(node, "AXPosition", None)
+        except Exception:
+            position = None
+
+        try:
+            size = getattr(node, "AXSize", None)
+        except Exception:
+            size = None
+
+        def safe_get(attr: str, default: Any = None) -> Any:
+            try:
+                return getattr(node, attr, default)
+            except Exception:
+                return default
+
+        def safe_str(attr: str) -> str:
+            try:
+                val = getattr(node, attr, None)
+                return str(val) if val else ""
+            except Exception:
+                return ""
+
+        return {
+            "role": role,
+            "position": position,
+            "size": size,
+            "title": safe_get("AXTitle"),
+            "description": safe_get("AXDescription"),
+            "value": safe_get("AXValue"),
+            "placeholder": safe_get("AXPlaceholderValue"),
+            "identifier": safe_str("AXIdentifier"),
+            "actions": safe_get("AXActions") or [],
+            "enabled": bool(safe_get("AXEnabled", False)),
+            "focused": bool(safe_get("AXFocused", False)),
+            "role_description": safe_str("AXRoleDescription"),
+            "help": safe_str("AXHelp"),
+            "children": safe_get("AXChildren"),
+        }
 
     def _traverse(
         self,
@@ -389,27 +489,25 @@ class MacOSAccessibility(AccessibilityProtocol):
 
         if role == "AXApplication":
             children = attrs["children"]
-            if children:
-                for child in children:
-                    if not self._traverse(
-                        child, elements, interactive_only, depth + 1, app_name
-                    ):
-                        return False
+            for child in _safe_iter(children):
+                if not self._traverse(
+                    child, elements, interactive_only, depth + 1, app_name
+                ):
+                    return False
             return True
 
-        has_actions = attrs["actions"] is not None and len(attrs["actions"]) > 0
+        has_actions = _is_nonempty_list(attrs["actions"])
         is_interactive = has_actions or attrs["enabled"]
 
         if not interactive_only or is_interactive:
             self._register_element_from_attrs(node, attrs, app_name, elements)
 
         children = attrs["children"]
-        if children:
-            for child in children:
-                if not self._traverse(
-                    child, elements, interactive_only, depth + 1, app_name
-                ):
-                    return False
+        for child in _safe_iter(children):
+            if not self._traverse(
+                child, elements, interactive_only, depth + 1, app_name
+            ):
+                return False
 
         return True
 
@@ -472,24 +570,30 @@ class MacOSAccessibility(AccessibilityProtocol):
         if w <= 0 or h <= 0:
             return
 
+        identifier = attrs.get("identifier", "")
+        short_id = identifier if identifier and len(identifier) <= 10 else ""
+
         label = (
-            attrs.get("title")
-            or attrs.get("description")
-            or (str(attrs.get("value", ""))[:100] if attrs.get("value") else "")
-            or attrs.get("placeholder")
+            _safe_str(attrs.get("title"))
+            or _safe_str(attrs.get("description"))
+            or _safe_str(attrs.get("value"))
+            or _safe_str(attrs.get("placeholder"))
+            or _safe_str(attrs.get("help"))
+            or _safe_str(attrs.get("role_description"))
+            or short_id
             or ""
         )
-        if label:
-            label = str(label)
+
+        center = [int(x + w / 2), int(y + h / 2)]
 
         normalized = {
             "role": self._normalize_role(attrs["role"]),
             "label": label,
-            "identifier": attrs.get("identifier", ""),
+            "identifier": identifier,
             "app_name": app_name,
-            "center": [int(x + w / 2), int(y + h / 2)],
+            "center": center,
             "bounds": [int(x), int(y), int(w), int(h)],
-            "has_actions": len(attrs.get("actions", [])) > 0,
+            "has_actions": _is_nonempty_list(attrs.get("actions")),
             "enabled": attrs.get("enabled", True),
             "focused": attrs.get("focused", False),
             "_native_ref": node,
@@ -592,7 +696,7 @@ class MacOSAccessibility(AccessibilityProtocol):
                     return (clicked, message)
 
         clicked, message = self._native_click(
-            node, label, app_name=app_name, click_type=click_type
+            node, label, app_name=app_name, click_type=click_type, role=role
         )
         if clicked:
             return (clicked, message)
@@ -603,24 +707,51 @@ class MacOSAccessibility(AccessibilityProtocol):
         )
 
     def _native_click(
-        self, node: Any, label: str, app_name: str = "", click_type: str = "single"
+        self,
+        node: Any,
+        label: str,
+        app_name: str = "",
+        click_type: str = "single",
+        role: str = "",
     ) -> Tuple[bool, str]:
         invalidate_target = app_name if app_name else None
         normalized = (click_type or "single").strip().lower()
         if normalized not in {"single", "double", "right"}:
             normalized = "single"
 
+        is_input_field = role.lower() in (
+            "textfield",
+            "searchfield",
+            "textarea",
+            "combobox",
+        )
+
+        def check_focus_suffix() -> str:
+            if not is_input_field:
+                return ""
+            try:
+                focused = bool(getattr(node, "AXFocused", False))
+                if focused:
+                    return " - element now has keyboard focus, ready for type_text"
+            except Exception:
+                pass
+            return ""
+
+        ui_settle_delay = 0.3
+
         try:
             if normalized == "single":
                 if hasattr(node, "Press") and callable(getattr(node, "Press")):
                     node.Press()
+                    time.sleep(ui_settle_delay)
                     self._cache.on_interaction(invalidate_target)
-                    return (True, f"Clicked '{label}' via Press")
+                    return (True, f"Clicked '{label}' via Press{check_focus_suffix()}")
 
                 if hasattr(node, "AXPress") and callable(getattr(node, "AXPress")):
                     node.AXPress()
+                    time.sleep(ui_settle_delay)
                     self._cache.on_interaction(invalidate_target)
-                    return (True, f"Clicked '{label}' via AXPress")
+                    return (True, f"Clicked '{label}' via AXPress{check_focus_suffix()}")
 
             preferred_substrings: Tuple[str, ...]
             if normalized == "right":
@@ -636,15 +767,17 @@ class MacOSAccessibility(AccessibilityProtocol):
                 if any(s in action_lower for s in preferred_substrings):
                     if hasattr(node, action) and callable(getattr(node, action)):
                         getattr(node, action)()
+                        time.sleep(ui_settle_delay)
                         self._cache.on_interaction(invalidate_target)
-                        return (True, f"Clicked '{label}' via {action}")
+                        return (True, f"Clicked '{label}' via {action}{check_focus_suffix()}")
 
                     if hasattr(node, "performAction") and callable(
                         getattr(node, "performAction")
                     ):
                         node.performAction(action)
+                        time.sleep(ui_settle_delay)
                         self._cache.on_interaction(invalidate_target)
-                        return (True, f"Clicked '{label}' via {action}")
+                        return (True, f"Clicked '{label}' via {action}{check_focus_suffix()}")
 
             if normalized in {"double", "right"}:
                 return (False, f"No native {normalized}-click action for '{label}'")
@@ -657,15 +790,15 @@ class MacOSAccessibility(AccessibilityProtocol):
         try:
             if hasattr(node, "getActions"):
                 actions = node.getActions()
-                if actions:
-                    return [str(a) for a in actions]
+                if _is_nonempty_list(actions):
+                    return [str(a) for a in _safe_iter(actions)]
         except Exception:
             pass
 
         try:
             actions = getattr(node, "AXActions", None)
-            if actions:
-                return [str(a) for a in actions]
+            if _is_nonempty_list(actions):
+                return [str(a) for a in _safe_iter(actions)]
         except Exception:
             pass
 
@@ -695,7 +828,7 @@ class MacOSAccessibility(AccessibilityProtocol):
                 if (
                     hasattr(current, "Press")
                     or hasattr(current, "AXPress")
-                    or (hasattr(current, "AXActions") and current.AXActions)
+                    or _is_nonempty_list(getattr(current, "AXActions", None))
                 ):
                     return current
         except Exception:
